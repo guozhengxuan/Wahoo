@@ -3,17 +3,19 @@ package tusk
 import (
 	"crypto/ed25519"
 	"encoding/binary"
+	"math"
+	"reflect"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/config"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/rbc"
 	"github.com/gitzhang10/BFT/sign"
 	"github.com/hashicorp/go-hclog"
 	"go.dedis.ch/kyber/v3/share"
-	"math"
-	"reflect"
-	"strconv"
-	"sync"
-	"time"
 )
 
 type Node struct {
@@ -73,7 +75,7 @@ func NewNode(conf *config.Config) *Node {
 		Txs:          nil,
 		TimeStamp:    0,
 	}
-	hash, _ := block.getHashAsString()
+	hash, _ := common.GetHashAsString(block)
 	n.chain.blocks[hash] = block
 	n.leader = make(map[uint64]string)
 	n.elect = make(map[uint64]map[string][]byte)
@@ -158,7 +160,7 @@ func (n *Node) selectPreviousBlocks(round uint64) map[string][]byte {
 		return previousHash
 	}
 	for sender, block := range n.dag[round] {
-		hash, _ := block.getHash()
+		hash, _ := common.GetHash(block)
 		previousHash[sender] = hash
 	}
 	return previousHash
@@ -222,7 +224,7 @@ func (n *Node) tryToElectLeader(round uint64) {
 		elect := n.elect[round]
 		if len(elect) >= n.quorumNum {
 			var partialSig [][]byte
-			data, err := encode(round)
+			data, err := common.Encode(round)
 			if err != nil {
 				panic(err)
 			}
@@ -274,7 +276,7 @@ func (n *Node) tryToCommitLeader(round uint64) {
 			if n.checkWhetherValidLeader(round) {
 				n.tryToCommitAncestorLeader(round)
 				block := n.dag[round][n.leader[round]]
-				hash, _ := block.getHashAsString()
+				hash, _ := common.GetHashAsString(block)
 				n.chain.round = round
 				n.chain.blocks[hash] = block
 				n.logger.Info("commit the leader block", "node", n.name, "round", round, "block-proposer", block.Sender)
@@ -301,7 +303,7 @@ func (n *Node) tryToCommitAncestorLeader(round uint64) {
 	for i := uint64(1); i < round; i = i + 2 {
 		if _, ok := validLeader[i]; ok {
 			block := n.dag[i][n.leader[i]]
-			hash, _ := block.getHashAsString()
+			hash, _ := common.GetHashAsString(block)
 			n.chain.round = i
 			n.chain.blocks[hash] = block
 			n.logger.Info("commit the ancestor leader block", "node", n.name, "round", i, "block-proposer", block.Sender)
@@ -325,7 +327,7 @@ func (n *Node) commitAncestorBlocks(round uint64) {
 	for {
 		templeBlocks[r-1] = make(map[string]*Block)
 		for _, block := range templeBlocks[r] {
-			hash, _ := block.getHashAsString()
+			hash, _ := common.GetHashAsString(block)
 			if _, ok := n.chain.blocks[hash]; !ok {
 				n.chain.blocks[hash] = block
 				commitTime := time.Now().UnixNano()
@@ -334,7 +336,7 @@ func (n *Node) commitAncestorBlocks(round uint64) {
 			}
 			for s := range block.PreviousHash {
 				linkBlock := n.dag[r-1][s]
-				hash,_ = linkBlock.getHashAsString()
+				hash,_ = common.GetHashAsString(linkBlock)
 				if _, ok := n.chain.blocks[hash]; !ok {
 					templeBlocks[r-1][s] = linkBlock
 				}
@@ -397,7 +399,7 @@ func (n *Node) findValidLeader(round uint64) map[uint64]string {
 
 func (n *Node) newBlock(round uint64, previousHash map[string][]byte) *Block {
 	var batch [][]byte
-	tx := generateTX(20)
+	tx := common.GenerateTX(20)
 	for i := 0; i < n.batchSize; i++ {
 		batch = append(batch, tx)
 	}
@@ -418,7 +420,7 @@ func (n *Node) verifySigED25519(peer string, data interface{}, sig []byte) bool 
 		n.logger.Error("node is unknown", "node", peer)
 		return false
 	}
-	dataAsBytes, err := encode(data)
+	dataAsBytes, err := common.Encode(data)
 	if err != nil {
 		n.logger.Error("fail to encode the data", "error", err)
 		return false

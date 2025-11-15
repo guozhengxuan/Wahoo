@@ -3,6 +3,7 @@ package wahoo
 import (
 	"strconv"
 
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
 )
@@ -32,7 +33,7 @@ func (n *Node) sendReady(round uint64, hash []byte, blockSender string) {
 }
 
 func (n *Node) broadcastElect(round uint64) {
-	data, err := encode(round)
+	data, err := common.Encode(round)
 	if err != nil {
 		panic(err)
 	}
@@ -75,7 +76,7 @@ func (n *Node) broadcastReVote(round uint64, voted bool) {
 
 // send message to all nodes
 func (n *Node) broadcast(msgType uint8, msg interface{}) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}
@@ -98,7 +99,7 @@ func (n *Node) broadcast(msgType uint8, msg interface{}) error {
 
 //only send message to one node
 func (n *Node) send(msgType uint8, msg interface{}, target string) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}

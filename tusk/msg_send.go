@@ -1,6 +1,7 @@
 package tusk
 
 import (
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
 )
@@ -9,7 +10,7 @@ import (
 func (n *Node) broadcastBlock(round uint64) {
 	previousHash := n.selectPreviousBlocks(round-1)
 	block := n.newBlock(round, previousHash)
-	blockAsBytes, err := encode(block)
+	blockAsBytes, err := common.Encode(block)
 	if err != nil {
 		panic(err)
 	}
@@ -19,7 +20,7 @@ func (n *Node) broadcastBlock(round uint64) {
 }
 
 func (n *Node) broadcastElect(round uint64) {
-	data, err := encode(round)
+	data, err := common.Encode(round)
 	if err != nil {
 		panic(err)
 	}
@@ -37,7 +38,7 @@ func (n *Node) broadcastElect(round uint64) {
 
 // send message to all nodes
 func (n *Node) broadcast(msgType uint8, msg interface{}) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}

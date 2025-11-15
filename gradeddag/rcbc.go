@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"sync"
 
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
 	"go.dedis.ch/kyber/v3/share"
@@ -201,7 +202,7 @@ func (c *CBC) tryToOutputBlocks(round uint64, sender string) {
 	// we will not send ready for slow blocks
 	if block.Round%2 == 1 && !c.blockSend[block.Round+1] {
 		c.lock.Unlock()
-		hash, _ := block.getHash()
+		hash, _ := common.GetHash(block)
 		go c.broadcastReady(block.Round, hash, block.Sender)
 	} else {
 		c.lock.Unlock()
@@ -211,7 +212,7 @@ func (c *CBC) tryToOutputBlocks(round uint64, sender string) {
 
 // send message to all nodes
 func (c *CBC) broadcast(msgType uint8, msg interface{}) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}

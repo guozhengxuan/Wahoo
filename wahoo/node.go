@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/config"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
@@ -80,7 +81,7 @@ func NewNode(conf *config.Config) *Node {
 		Txs:          nil,
 		TimeStamp:    0,
 	}
-	hash, _ := block.getHashAsString()
+	hash, _ := common.GetHashAsString(block)
 	n.chain.blocks[hash] = block
 	n.leader = make(map[uint64]string)
 	n.done = make(map[uint64]map[string]*Done)
@@ -169,7 +170,7 @@ func (n *Node) selectPreviousBlocks(round uint64) map[string][]byte {
 		return previousHash
 	}
 	for sender, block := range n.dag[round] {
-		hash, _ := block.getHash()
+		hash, _ := common.GetHash(block)
 		previousHash[sender] = hash
 	}
 	return previousHash
@@ -259,7 +260,7 @@ func (n *Node) tryToElectLeader(round uint64) {
 	if len(elect) >= n.quorumNum && !n.leaderElect[round] {
 		n.leaderElect[round] = true
 		var partialSig [][]byte
-		data, err := encode(round)
+		data, err := common.Encode(round)
 		if err != nil {
 			panic(err)
 		}
@@ -329,7 +330,7 @@ func (n *Node) tryToCommitLeader(round uint64) {
 			if _, ok := n.dag[round][n.leader[round]]; ok {
 				n.tryToCommitAncestorLeader(round)
 				block := n.dag[round][n.leader[round]]
-				hash, _ := block.getHashAsString()
+				hash, _ := common.GetHashAsString(block)
 				n.chain.round = round
 				n.chain.blocks[hash] = block
 				n.logger.Info("commit the leader block", "node", n.name, "round", round, "block-proposer", block.Sender)
@@ -356,7 +357,7 @@ func (n *Node) tryToCommitAncestorLeader(round uint64) {
 	for i := uint64(1); i < round; i = i + 2 {
 		if _, ok := validLeader[i]; ok {
 			block := n.dag[i][n.leader[i]]
-			hash, _ := block.getHashAsString()
+			hash, _ := common.GetHashAsString(block)
 			n.chain.round = i
 			n.chain.blocks[hash] = block
 			n.logger.Info("commit the ancestor leader block", "node", n.name, "round", i, "block-proposer", block.Sender)
@@ -372,7 +373,7 @@ func (n *Node) tryToCommitAncestorLeader(round uint64) {
 func (n *Node) findValidLeader(round uint64) map[uint64]string {
 	templeBlocks := make(map[uint64]map[string]*Block)
 	block := n.dag[round][n.leader[round]]
-	hash, _ := block.getHashAsString()
+	hash, _ := common.GetHashAsString(block)
 	templeBlocks[round] = make(map[string]*Block)
 	templeBlocks[round][hash] = block
 	validLeader := make(map[uint64]string)
@@ -386,7 +387,7 @@ func (n *Node) findValidLeader(round uint64) map[uint64]string {
 			}
 			for sender := range b.PreviousHash {
 				linkBlock := n.dag[r-1][sender]
-				hash, _ := linkBlock.getHashAsString()
+				hash, _ := common.GetHashAsString(linkBlock)
 				templeBlocks[r-1][hash] = linkBlock
 			}
 		}
@@ -402,7 +403,7 @@ func (n *Node) findValidLeader(round uint64) map[uint64]string {
 func (n *Node) commitAncestorBlocks(round uint64) {
 	templeBlocks := make(map[uint64]map[string]*Block)
 	block := n.dag[round][n.leader[round]]
-	hash, _ := block.getHashAsString()
+	hash, _ := common.GetHashAsString(block)
 	templeBlocks[round] = make(map[string]*Block)
 	templeBlocks[round][hash] = block
 	r := round
@@ -417,7 +418,7 @@ func (n *Node) commitAncestorBlocks(round uint64) {
 			}
 			for sender := range b.PreviousHash {
 				linkBlock := n.dag[r-1][sender]
-				h, _ := linkBlock.getHashAsString()
+				h, _ := common.GetHashAsString(linkBlock)
 				if _, ok := n.chain.blocks[h]; !ok {
 					templeBlocks[r-1][h] = linkBlock
 				}
@@ -432,7 +433,7 @@ func (n *Node) commitAncestorBlocks(round uint64) {
 
 func (n *Node) NewBlock(round uint64, previousHash map[string][]byte) *Block {
 	var batch [][]byte
-	tx := generateTX(20)
+	tx := common.GenerateTX(20)
 	for i := 0; i < n.batchSize; i++ {
 		batch = append(batch, tx)
 	}
@@ -453,7 +454,7 @@ func (n *Node) verifySigED25519(peer string, data interface{}, sig []byte) bool 
 		n.logger.Error("node is unknown", "node", peer)
 		return false
 	}
-	dataAsBytes, err := encode(data)
+	dataAsBytes, err := common.Encode(data)
 	if err != nil {
 		n.logger.Error("fail to encode the data", "error", err)
 		return false

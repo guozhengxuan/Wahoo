@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
 	"go.dedis.ch/kyber/v3/share"
@@ -264,7 +265,7 @@ func (c *PB) generateBlock2(round uint64, blockSender string) *Block {
 
 // send message to all nodes
 func (c *PB) broadcast(msgType uint8, msg interface{}) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}
@@ -287,7 +288,7 @@ func (c *PB) broadcast(msgType uint8, msg interface{}) error {
 
 //only send message to one node
 func (c *PB) send(msgType uint8, msg interface{}, target string) error {
-	msgAsBytes, err := encode(msg)
+	msgAsBytes, err := common.Encode(msg)
 	if err != nil {
 		return err
 	}

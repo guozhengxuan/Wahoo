@@ -1,5 +1,9 @@
 package wahoo
 
+import (
+	"github.com/gitzhang10/BFT/common"
+)
+
 func (n *Node) HandleMsgLoop() {
 	msgCh := n.trans.MsgChan()
 	for {
@@ -59,7 +63,7 @@ func (n *Node) handlePBBlock(block *Block) {
 }
 
 func (n *Node) handleFastBlockMsg(block *Block) {
-	hash, _ := block.getHash()
+	hash, _ := common.GetHash(block)
 	// this is a simple way, need modify...
 	go n.tryToUpdateDAG(block)
 	n.lock.Lock()

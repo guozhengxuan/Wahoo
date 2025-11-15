@@ -1,8 +1,10 @@
 package tusk
 
 import (
-	"github.com/gitzhang10/BFT/rbc"
 	"strconv"
+
+	"github.com/gitzhang10/BFT/common"
+	"github.com/gitzhang10/BFT/rbc"
 )
 
 // HandleMsgLoop starts a loop to deal with the msgs from other peers.
@@ -68,7 +70,7 @@ func (n *Node) ConstructedBlockLoop() {
 		select {
 		case data := <-dataCh:
 			block := new(Block)
-			if err := decode(data, block); err != nil {
+			if err := common.Decode(data, block); err != nil {
 				n.logger.Debug("Data received is not a block")
 			} else {
 				n.logger.Debug("Block is received by from RBC", "node", n.name, "round",
