@@ -22,3 +22,4 @@ batch_size: 500
 round: 50
 faulty_number: 0
 protocol: wahoo
+tx_size: 250

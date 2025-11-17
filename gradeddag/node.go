@@ -41,6 +41,7 @@ type Node struct {
 	maxPool     int
 	trans       *conn.NetworkTransport
 	batchSize   int
+	txSize      int
 	roundNumber uint64 // the number of rounds the protocol will run
 
 	//Used for ED25519 signature
@@ -98,6 +99,7 @@ func NewNode(conf *config.Config) *Node {
 	n.isFaulty = conf.IsFaulty
 	n.maxPool = conf.MaxPool
 	n.batchSize = conf.BatchSize
+	n.txSize = conf.TxSize
 	n.roundNumber = uint64(conf.Round)
 	n.publicKeyMap = conf.PublicKeyMap
 	n.privateKey = conf.PrivateKey
@@ -388,7 +390,7 @@ func (n *Node) commitAncestorBlocks(round uint64) {
 
 func (n *Node) NewBlock(round uint64, previousHash map[string][]byte) *Block {
 	var batch [][]byte
-	tx := common.GenerateTX(20)
+	tx := common.GenerateTX(n.txSize)
 	for i := 0; i < n.batchSize; i++ {
 		batch = append(batch, tx)
 	}

@@ -58,11 +58,11 @@ func GetHashAsString(data interface{}) (string, error) {
 	return hex.EncodeToString(hash), nil
 }
 
-// GenerateTX generates a transaction with s bytes
-func GenerateTX(s int) []byte {
+// GenerateTX generates a transaction with the size specified in config
+func GenerateTX(txSize int) []byte {
 	var trans []byte
 	rand.Seed(time.Now().UnixNano())
-	for i := 0; i < s; i++ {
+	for i := 0; i < txSize; i++ {
 		trans = append(trans, byte(rand.Intn(200)))
 	}
 	return trans
