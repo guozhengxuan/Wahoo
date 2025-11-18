@@ -1,0 +1,21 @@
+{
+    "key": {
+        "name": "Loom",
+        "path": "/Users/zhengxuanguo/.ssh/id_ed25519",
+        "accesskey": "/Users/zhengxuanguo/.aliyun/access_mainland.json"
+    },
+    "ports": {
+        "consensus": 8000
+    },
+    "instances": {
+        "type": "ecs.g9i.xlarge",
+        "regions": [
+            "eu-central-1"
+        ]
+    },
+    "repo": {
+        "url": "https://github.com/guozhengxuan/Wahoo.git",
+        "branch": "main",
+        "name": "Wahoo"
+    }
+}

@@ -1,0 +1,10 @@
+.idea/
+.vscode/
+
+benchmark/db-*
+benchmark/logs
+benchmark/results
+benchmark/.*
+
+**/main
+**/__pycache__
