@@ -460,7 +460,7 @@ class Bench:
 
             # Compile Wahoo on remote server
             Print.info(f'  {host}: Building Wahoo')
-            result = c.run('cd Wahoo && /usr/local/go/bin/go build -o BFT main.go', warn=True)
+            result = c.run('cd Wahoo && go build -o BFT main.go', warn=True)
             if result.failed:
                 Print.error(BenchError(f'Wahoo compilation failed on {host}', Exception(result.stderr)))
                 raise ExecutionError(f'Wahoo compilation failed on {host}: {result.stderr}')
@@ -571,15 +571,13 @@ class Bench:
 
         # Generate config_template.yaml for config_gen
         cluster_ips = {}
-        peers_p2p_port = {}
         for i, host in enumerate(hosts):
             node_name = f'node{i}'
             cluster_ips[node_name] = host
-            peers_p2p_port[node_name] = self.settings.consensus_port
 
         config_data = {
             'IPs': cluster_ips,
-            'peers_p2p_port': peers_p2p_port,
+            'p2p_port': self.settings.consensus_port,
             'max_pool': node_parameters.json['pool']['max_pool'],
             'log_level': 3,
             'batch_size': bench_parameters.batch_szie[0],

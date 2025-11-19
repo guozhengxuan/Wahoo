@@ -95,35 +95,25 @@ func main() {
 	}
 	sort.Strings(clusterName)
 
-	// deal with p2p_listen_port as a string map
-	P2pPortMapInterface := viperRead.GetStringMap("peers_p2p_port")
-	if nodeNumber != len(P2pPortMapInterface) {
-		panic("p2p_listen_port does not match with cluster")
+	// deal with p2p_port as a single integer value
+	p2pPort := viperRead.GetInt("p2p_port")
+	if p2pPort == 0 {
+		panic("p2p_port is not set or invalid")
 	}
+
+	// Assign the same port to all nodes
 	p2pPortMapInterface := make(map[string]int)
-	mapNameToP2PPort := make(map[string]int, nodeNumber)
-	for name := range clusterMapString {
-		portAsInterface, ok := P2pPortMapInterface[name]
-		if !ok {
-			panic("p2p_listen_port does not match with cluster")
-		}
-		if portAsInt, ok := portAsInterface.(int); ok {
-			mapNameToP2PPort[name] = portAsInt
-			rs := []rune(name)
-			ipIndex, _ := strconv.Atoi(string(rs[4:]))
-			for j := 0; j < ProcessCount; j++ {
-				if ipIndex == 0 {
-					for k := 0; k < leaderCount; k++ {
-						subScript := strconv.Itoa(k)
-						p2pPortMapInterface["node"+subScript] = portAsInt + k*10
-					}
-					break
+	for i := 0; i < nodeNumber; i++ {
+		for j := 0; j < ProcessCount; j++ {
+			if i == 0 {
+				for k := 0; k < leaderCount; k++ {
+					subScript := strconv.Itoa(k)
+					p2pPortMapInterface["node"+subScript] = p2pPort
 				}
-				subScript := strconv.Itoa((ipIndex-1)*ProcessCount + j + leaderCount)
-				p2pPortMapInterface["node"+subScript] = portAsInt + j*10
+				break
 			}
-		} else {
-			panic("p2p_listen_port contains a non-int value")
+			subScript := strconv.Itoa((i-1)*ProcessCount + j + leaderCount)
+			p2pPortMapInterface["node"+subScript] = p2pPort
 		}
 	}
 	// deal with rpc_listen_port as a string map

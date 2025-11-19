@@ -1,5 +1,7 @@
 from json import load
 import time
+import yaml
+import os
 
 from alibabacloud_vpc20160428.client import Client as Vpc20160428Client
 from alibabacloud_vpc20160428 import models as vpc_20160428_models
@@ -238,6 +240,10 @@ class InstanceManager:
             Print.info('Waiting for all instances to boot...')
             self._wait(['Pending'])
             Print.heading(f'Successfully created {size} new instances')
+
+            # Write IPs to config_gen/config_template.yaml
+            self._write_ips_to_config_template()
+
         except Exception as error:
             # Handle both Alibaba Cloud API errors and standard Python exceptions
             if hasattr(error, 'message') and error.message:
@@ -246,6 +252,45 @@ class InstanceManager:
                     print(f"Recommend: {error.data.get('Recommend', 'N/A')}")
             # Re-raise the exception so it can be handled by the retry logic
             raise
+
+    def _write_ips_to_config_template(self):
+        """
+        Write the IPs of created instances to config_gen/config_template.yaml
+        """
+        Print.info('Writing instance IPs to config_gen/config_template.yaml...')
+
+        # Get the IPs of all running instances
+        hosts = self.hosts(flat=True)
+
+        # Build IPs dictionary
+        ips_dict = {}
+        for i, ip in enumerate(hosts):
+            node_name = f'node{i}'
+            ips_dict[node_name] = ip
+
+        # Path to config_template.yaml
+        config_template_path = 'config_gen/config_template.yaml'
+
+        # Check if config_template.yaml exists
+        if os.path.exists(config_template_path):
+            # Load existing config
+            with open(config_template_path, 'r') as f:
+                config_data = yaml.safe_load(f) or {}
+        else:
+            # Create new config
+            config_data = {}
+
+        # Update IPs entry
+        config_data['IPs'] = ips_dict
+
+        # Set p2p_port as a single value (not a map)
+        config_data['p2p_port'] = 9000
+
+        # Write back to file
+        with open(config_template_path, 'w') as f:
+            yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
+
+        Print.info(f'Successfully wrote {len(hosts)} instance IPs to {config_template_path}')
 
     def terminate_instances(self):
         
