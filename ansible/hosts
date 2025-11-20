@@ -1,10 +1,5 @@
 [BFT]
-node0 ansible_ssh_host=8.221.136.53
-node1 ansible_ssh_host=8.213.136.242
-node2 ansible_ssh_host=47.236.158.159
-node3 ansible_ssh_host=47.251.60.179
-
-[BFT:vars]
-ansible_ssh_user=root
-ansible_ssh_pass=Aaqcdag2023
-ansible_ssh_port=22
+node0 ansible_host=47.87.128.146 ansible_user=root
+node1 ansible_host=47.245.150.174 ansible_user=root
+node2 ansible_host=47.245.148.171 ansible_user=root
+node3 ansible_host=47.87.128.85 ansible_user=root

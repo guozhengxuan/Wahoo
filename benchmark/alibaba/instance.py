@@ -269,6 +269,9 @@ class InstanceManager:
             # Write IPs to config_gen/config_template.yaml
             self._write_ips_to_config_template()
 
+            # Generate Ansible hosts inventory file
+            self._write_ansible_hosts_file()
+
         except Exception as error:
             # Handle both Alibaba Cloud API errors and standard Python exceptions
             if hasattr(error, 'message') and error.message:
@@ -316,6 +319,29 @@ class InstanceManager:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
         Print.info(f'Successfully wrote {len(hosts)} instance IPs to {config_template_path}')
+
+    def _write_ansible_hosts_file(self):
+        """
+        Generate Ansible hosts inventory file for the BFT group
+        """
+        Print.info('Generating Ansible hosts inventory file...')
+
+        # Get the IPs of all running instances
+        hosts = self.hosts(flat=True)
+
+        # Path to Ansible hosts file
+        ansible_hosts_path = '../ansible/hosts'
+
+        # Generate hosts file content
+        hosts_content = "[BFT]\n"
+        for i, ip in enumerate(hosts):
+            hosts_content += f"node{i} ansible_host={ip} ansible_user=root\n"
+
+        # Write to file
+        with open(ansible_hosts_path, 'w') as f:
+            f.write(hosts_content)
+
+        Print.info(f'Successfully generated Ansible hosts file with {len(hosts)} nodes at {ansible_hosts_path}')
 
     def terminate_instances(self):
         
