@@ -6,5 +6,8 @@ benchmark/logs
 benchmark/results
 benchmark/.*
 
+config_gen/hosts
+config_gen/node*.yaml
+
 **/main
 **/__pycache__
