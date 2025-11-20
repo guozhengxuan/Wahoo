@@ -109,7 +109,7 @@ def remote(ctx):
     bench_params = {
         'nodes': [4],
         'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
-        'duration': 30,
+        'round': 30,
         'rate': 8_000,                                                  # tx send rate
         'batch_size': [1000],                              # the max number of tx that can be hold 
         'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
@@ -197,11 +197,11 @@ def remote_w(ctx, protocol='wahoo'):
         fab remote_w:protocol=gradeddag  # Run GradedDAG
     '''
     bench_params = {
-        'nodes': [10],
+        'nodes': [4],
         'node_instance': 1,
         'round': 30,
         'rate': 5_000,
-        'batch_size': [500, 1000],
+        'batch_size': [1000],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1
@@ -209,7 +209,8 @@ def remote_w(ctx, protocol='wahoo'):
     node_params = {
         "pool": {
             "tx_size": 250,
-            "max_pool": 31
+            "max_pool": 31,
+            "max_queue_size": 100_000
         },
         "consensus": {
             "sync_timeout": 1_000,

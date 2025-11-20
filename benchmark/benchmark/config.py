@@ -117,7 +117,7 @@ class BenchParameters:
             self.log_level = int(json['log_level'])
             self.rate = int(json['rate'])
             self.batch_szie = [int(x) for x in batch_szie]
-            self.duration = int(json['duration'])
+            self.round = int(json['round'])
             self.runs = int(json['runs']) if 'runs' in json else 1
             self.node_instance = int(json['node_instance']) if 'node_instance' in json else 1
             self.protocol = json['protocol_name']

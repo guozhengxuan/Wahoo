@@ -1,13 +1,12 @@
 IPs:
-  node0: 47.87.128.146
-  node1: 47.245.150.174
-  node2: 47.245.148.171
-  node3: 47.87.128.85
-p2p_port: 9000
+  node0: 47.87.129.254
+  node1: 47.245.149.184
+  node2: 47.245.147.46
+  node3: 47.87.130.195
+p2p_port: 8000
 max_pool: 31
 log_level: 3
-batch_size: 500
-round: 20
+batch_size: 1000
+round: 30
 faulty_number: 0
 protocol: wahoo
-tx_size: 250

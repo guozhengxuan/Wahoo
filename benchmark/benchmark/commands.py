@@ -22,7 +22,11 @@ class CommandMaker:
     @staticmethod
     def make_logs_dir(ts):
         return f'mkdir -p {PathMaker.logs_path(ts)}'
-    
+
+    @staticmethod
+    def clean_logs():
+        return 'rm -rf logs'
+
     @staticmethod
     def compile():
         return 'go build ../main.go'

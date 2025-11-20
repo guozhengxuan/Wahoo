@@ -471,6 +471,26 @@ class Bench:
         # Pull and compile concurrently on all hosts
         run_concurrent_tasks(pull_and_compile, hosts, "Pulling and compiling Wahoo")
 
+    def _check_wahoo_completion(self, host, log_file):
+        """
+        Check if a Wahoo node has completed by monitoring its log file for completion signal.
+
+        The main.go RunLoop() function ends after completing preset rounds and logs:
+        - "the average" (latency and throughput)
+        - "the total commit" (block number and time)
+
+        Returns True if the node has completed, False otherwise.
+        """
+        completion_pattern = "the total commit"
+
+        try:
+            c = Connection(host, user='root', connect_kwargs=self.connect)
+            # Check if completion log message exists in the log file
+            result = c.run(f'grep -q "{completion_pattern}" {log_file}', warn=True, hide=True)
+            return result.ok
+        except Exception:
+            return False
+
     def _run_single_wahoo(self, hosts, bench_parameters, node_parameters, ts, protocol='wahoo', debug=False):
         """
         Run a single Wahoo/Tusk/GradedDAG benchmark.
@@ -509,10 +529,27 @@ class Bench:
         Print.info('Waiting for the nodes to synchronize...')
         sleep(20)
 
-        # Wait for all transactions to be processed
-        duration = bench_parameters.duration
-        for _ in progress_bar(range(100), prefix=f'Running {protocol} benchmark ({duration} secs):'):
-            sleep(duration / 100)
+        # Monitor for completion based on preset rounds in config
+        # Wahoo's RunLoop() ends after completing n.roundNumber rounds
+        # Check the first non-faulty node's log file
+        monitor_host = hosts[0]
+        monitor_log = PathMaker.node_log_file(0, ts)
+
+        Print.info(f'Monitoring {protocol} benchmark completion (checking every 10 seconds)...')
+        max_wait_time = 3600  # 1 hour max timeout
+        check_interval = 10   # Check every 10 seconds
+        elapsed_time = 0
+
+        while elapsed_time < max_wait_time:
+            if self._check_wahoo_completion(monitor_host, monitor_log):
+                Print.info(f'{protocol} benchmark completed after {elapsed_time} seconds')
+                # Give a bit more time for all nodes to finish their final outputs
+                sleep(5)
+                break
+            sleep(check_interval)
+            elapsed_time += check_interval
+        else:
+            Print.warn(f'{protocol} benchmark did not complete within {max_wait_time} seconds')
 
         self.kill_wahoo(hosts=hosts, delete_logs=False)
 
@@ -564,7 +601,7 @@ class Bench:
         Print.info('Generating Wahoo configuration files...')
 
         # Cleanup all local configuration files.
-        cmd = 'rm -f config_gen/*.yaml'
+        cmd = 'rm -f ../config_gen/*.yaml'
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
         num_nodes = len(hosts)
@@ -587,14 +624,14 @@ class Bench:
         }
 
         # Write config template
-        template_path = 'config_gen/config_template.yaml'
+        template_path = '../config_gen/config_template.yaml'
         with open(template_path, 'w') as f:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
         # Run config_gen to generate individual node configs
         Print.info(f'Running config_gen to generate {num_nodes} node configurations...')
         result = subprocess.run(
-            'cd config_gen && go run main.go',
+            'cd ../config_gen && go run main.go',
             shell=True,
             capture_output=True,
             text=True
@@ -650,7 +687,7 @@ class Bench:
         Print.info(f'Running {protocol.upper()}')
         Print.info(f'{node_parameters.faults} byzantine nodes')
         Print.info(f'Batch size: {bench_parameters.batch_szie[0]}')
-        Print.info(f'Duration: {bench_parameters.duration}s')
+        Print.info(f'Round: {bench_parameters.round} rounds')
 
         # Run benchmarks for each configuration
         for n in bench_parameters.nodes:
