@@ -4,6 +4,7 @@
 benchmark/db-*
 benchmark/logs
 benchmark/results
+benchmark/wahoo_results
 benchmark/.*
 
 config_gen/hosts
