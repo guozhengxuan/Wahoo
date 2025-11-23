@@ -93,9 +93,21 @@ class Bench:
     def _background_run(self, host, command, log_file):
         name = splitext(basename(log_file))[0]
         cmd = f'tmux new -d -s "{name}" "{command} |& tee {log_file}"'
-        c = Connection(host, user='root', connect_kwargs=self.connect)
-        output = c.run(cmd, hide=True)
-        self._check_stderr(output)
+
+        # Retry logic for SSH connection issues
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                c = Connection(host, user='root', connect_kwargs=self.connect)
+                output = c.run(cmd, hide=True)
+                self._check_stderr(output)
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    sleep(2)  # Wait before retry
+                    continue
+                else:
+                    raise  # Re-raise if all retries failed
 
     def _update(self, hosts,node_parameters,ts):
 
@@ -122,7 +134,11 @@ class Bench:
         run_concurrent_tasks(partial(self.upload_to_host, local_path=PathMaker.parameters_file(), remote_path='.'), hosts, "Uploading parameter files")
 
     def install(self):
-        Print.info("Installing dependencies on remote servers...")
+        Print.info("Installing dependencies and pulling code on remote servers...")
+
+        repo_url = self.settings.repo_url
+        branch = self.settings.repo_branch
+
         cmd = [
             'sudo apt-get update',
             'sudo DEBIAN_FRONTEND=noninteractive apt-get -y upgrade',
@@ -142,19 +158,31 @@ class Bench:
             'sudo ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt',
         ]
 
-        def install_on_host(host):
+        def install_and_pull(host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
+
+            # Install dependencies
             result = c.run(' && '.join(cmd), hide=True, warn=True)
             if result.failed:
                 raise ExecutionError(f'Installation failed on {host}: {result.stderr}')
+
+            # Pull or clone the repository
+            result = c.run('test -d Wahoo', warn=True, hide=True)
+            if result.ok:
+                # Directory exists, pull latest changes
+                c.run(f'cd Wahoo && git fetch origin && git checkout {branch} && git pull origin {branch}', hide=True)
+            else:
+                # Directory doesn't exist, clone the repository
+                c.run(f'git clone -b {branch} {repo_url}', hide=True)
+
             return host
 
         hosts = self.manager.hosts(flat=True)
         try:
-            run_concurrent_tasks(install_on_host, hosts, "Installing dependencies")
+            run_concurrent_tasks(install_and_pull, hosts, "Installing dependencies and pulling code")
             Print.heading(f'Initialized testbed of {len(hosts)} nodes')
         except Exception as e:
-            raise BenchError('Failed to install repo on testbed', e)
+            raise BenchError('Failed to install and pull code on testbed', e)
 
     def upload_to_host(self, host, local_path, remote_path):
         c = Connection(host, user='root', connect_kwargs=self.connect)
@@ -165,40 +193,6 @@ class Bench:
         c = Connection(host, user='root', connect_kwargs=self.connect)
         c.get(remote_path, local=local_path)
         return host
-
-    def pull_exec(self):
-        hosts = self.manager.hosts(flat=True)
-        repo_url = self.settings.repo_url
-        branch = self.settings.repo_branch
-        name = self.settings.repo_name
-
-        Print.info(f'Pulling code from {repo_url} (branch: {branch}) and compiling on remote servers...')
-
-        def pull_and_compile(host):
-            c = Connection(host, user='root', connect_kwargs=self.connect)
-
-            # Check if Loom directory exists
-            result = c.run('test -d Wahoo', warn=True, hide=True)
-
-            if result.ok:
-                # Directory exists, pull latest changes
-                c.run(f'cd Wahoo && git fetch origin && git checkout {branch} && git pull origin {branch} && cd ..', hide=True)
-            else:
-                # Directory doesn't exist, clone the repository
-                c.run(f'git clone -b {branch} {repo_url}', hide=True)
-
-            # Tidy modules and compile the code on remote server
-            result = c.run('cd Wahoo && go mod tidy && go build main.go', warn=True)
-            if result.failed:
-                raise ExecutionError(f'Compilation failed on {host}: {result.stderr}')
-
-            # Copy the compiled binary to home directory for execution
-            c.run('cp Wahoo/main .', hide=True)
-
-            return host
-
-        # Pull and compile concurrently on all hosts
-        run_concurrent_tasks(pull_and_compile, hosts, "Pulling code and compiling")
 
     def _config(self, hosts,bench_parameters):
         Print.info('Generating configuration files...')
@@ -404,73 +398,6 @@ class Bench:
 
     # ========== Wahoo/Tusk/GradedDAG Benchmark Methods ==========
 
-    def install_wahoo_deps(self):
-        """
-        Install Wahoo-specific dependencies on remote servers (Go 1.16+).
-        Based on lines 15-28 of ~/gitrepo/Wahoo/README.md (excluding ansible).
-        """
-        Print.info("Installing Wahoo dependencies (Go 1.16+) on remote servers...")
-        cmd = [
-            'sudo apt-get update',
-            'mkdir -p /tmp/go_install',
-            'cd /tmp/go_install',
-            'wget -q https://dl.google.com/go/go1.16.15.linux-amd64.tar.gz',
-            'sudo tar -xvf go1.16.15.linux-amd64.tar.gz',
-            'sudo rm -rf /usr/local/go',
-            'sudo mv go /usr/local',
-            'echo "export PATH=\\$PATH:~/.local/bin:/usr/local/go/bin" >> ~/.bashrc',
-            'export PATH=$PATH:/usr/local/go/bin',
-            '/usr/local/go/bin/go env -w GO111MODULE=on',
-            'rm -rf /tmp/go_install'
-        ]
-
-        def install_on_host(host):
-            c = Connection(host, user='root', connect_kwargs=self.connect)
-            result = c.run(' && '.join(cmd), hide=True, warn=True)
-            if result.failed:
-                raise ExecutionError(f'Wahoo deps installation failed on {host}: {result.stderr}')
-            return host
-
-        hosts = self.manager.hosts(flat=True)
-        try:
-            run_concurrent_tasks(install_on_host, hosts, "Installing Wahoo dependencies")
-            Print.heading(f'Initialized Wahoo dependencies on {len(hosts)} nodes')
-        except Exception as e:
-            raise BenchError('Failed to install Wahoo dependencies', e)
-
-    def pull_exec_wahoo(self, wahoo_repo_url="https://github.com/guozhengxuan/Wahoo.git", wahoo_branch="main"):
-        """
-        Pull Wahoo code from GitHub and compile on remote servers.
-        """
-        hosts = self.manager.hosts(flat=True)
-        Print.info(f'Pulling Wahoo from {wahoo_repo_url} (branch: {wahoo_branch}) and compiling on remote servers...')
-
-        def pull_and_compile(host):
-            c = Connection(host, user='root', connect_kwargs=self.connect)
-
-            # Check if Wahoo directory exists
-            result = c.run('test -d Wahoo', warn=True, hide=True)
-
-            if result.ok:
-                # Directory exists, pull latest changes
-                c.run(f'cd Wahoo && git fetch origin && git checkout {wahoo_branch} && git pull origin {wahoo_branch}', hide=True)
-            else:
-                # Directory doesn't exist, clone the repository
-                c.run(f'git clone -b {wahoo_branch} {wahoo_repo_url}', hide=True)
-
-            # Compile Wahoo on remote server
-            Print.info(f'  {host}: Building Wahoo')
-            result = c.run('cd Wahoo && go build -o BFT main.go', warn=True)
-            if result.failed:
-                Print.error(BenchError(f'Wahoo compilation failed on {host}', Exception(result.stderr)))
-                raise ExecutionError(f'Wahoo compilation failed on {host}: {result.stderr}')
-
-            Print.info(f'  {host}: ✓ Successfully compiled Wahoo')
-            return host
-
-        # Pull and compile concurrently on all hosts
-        run_concurrent_tasks(pull_and_compile, hosts, "Pulling and compiling Wahoo")
-
     def _check_wahoo_completion(self, host, log_file):
         """
         Check if a Wahoo node has completed by monitoring its log file for completion signal.
@@ -511,19 +438,26 @@ class Bench:
         g = Group(*hosts, user='root', connect_kwargs=self.connect)
         g.run(cmd, hide=True)
 
-        # Run the nodes
+        # Run the nodes using concurrent execution
+        def start_node(node_idx, host):
+            log_file = PathMaker.node_log_file(node_idx, ts)
+            cmd = f'cd ~/Wahoo && ./BFT'
+
+            try:
+                self._background_run(host, cmd, log_file)
+                Print.info(f'  Node {node_idx} started on {host}')
+                return host
+            except Exception as e:
+                raise BenchError(f'Failed to start node {node_idx} on {host}', e)
+
+        # Build list of (node_idx, host) tuples for all nodes
+        node_tasks = []
         for i, host in enumerate(hosts):
             for j in range(node_instance):
                 node_idx = i * node_instance + j
-                node_name = f'node{node_idx}'
+                node_tasks.append((node_idx, host))
 
-                # Wahoo uses config.yaml in its working directory
-                # Log file follows Loom's pattern
-                log_file = PathMaker.node_log_file(node_idx, ts)
-
-                # Command to run Wahoo node
-                cmd = f'cd ~/Wahoo && ./BFT'
-                self._background_run(host, cmd, log_file)
+        run_concurrent_tasks(lambda x: start_node(x[0], x[1]), node_tasks, "Starting Wahoo nodes")
 
         # Wait for the nodes to synchronize
         Print.info('Waiting for the nodes to synchronize...')
@@ -536,7 +470,7 @@ class Bench:
         monitor_log = PathMaker.node_log_file(0, ts)
 
         Print.info(f'Monitoring {protocol} benchmark completion (checking every 10 seconds)...')
-        max_wait_time = 3600  # 1 hour max timeout
+        max_wait_time = 120  # 2 mins max timeout
         check_interval = 10   # Check every 10 seconds
         elapsed_time = 0
 
@@ -645,17 +579,25 @@ class Bench:
         g = Group(*hosts, user='root', connect_kwargs=self.connect)
         g.run(cmd, hide=True)
 
-        # Upload configuration files.
-        def upload_config_to_host(i, host):
+        # Upload configuration files and compile BFT executable
+        def upload_config_and_compile(i, host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
             # Create working directory for Wahoo
             c.run('mkdir -p ~/Wahoo', hide=True)
             # Upload config file (config_gen generates node{i}_0.yaml files)
             config_file = f'config_gen/node{i}_0.yaml'
             c.put(config_file, '~/Wahoo/config.yaml')
+
+            # Compile BFT executable from main.go
+            Print.info(f'  {host}: Building BFT executable...')
+            result = c.run('cd ~/Wahoo && go build -o BFT main.go', warn=True, hide=True)
+            if result.failed:
+                raise ExecutionError(f'BFT compilation failed on {host}: {result.stderr}')
+
+            Print.info(f'  {host}: ✓ Config uploaded and BFT compiled')
             return host
 
-        run_concurrent_tasks(upload_config_to_host, list(enumerate(hosts)), "Uploading Wahoo config files")
+        run_concurrent_tasks(upload_config_and_compile, list(enumerate(hosts)), "Uploading configs and compiling BFT")
 
     def run_wahoo(self, bench_parameters_dict, node_parameters_dict, protocol='wahoo', debug=False):
         """

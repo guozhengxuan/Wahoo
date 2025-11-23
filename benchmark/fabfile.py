@@ -89,9 +89,10 @@ def install(ctx):
         Print.error(e)
 
 @task
-def uploadexec(ctx):
+def config(ctx):
+    ''' Generate Wahoo configs, upload to instances, and compile BFT executable '''
     try:
-        Bench(ctx).pull_exec()
+        Bench(ctx).config_wahoo()
     except BenchError as e:
         Print.error(e)
 
@@ -167,22 +168,6 @@ def logs(ctx):
     #     Print.error(BenchError('Failed to parse logs', e))
 
 # ========== Wahoo/Tusk/GradedDAG Benchmark Tasks ==========
-
-# @task
-# def install_w(ctx):
-#     ''' Install Wahoo dependencies (Go 1.16+) on remote servers '''
-#     try:
-#         Bench(ctx).install_wahoo_deps()
-#     except BenchError as e:
-#         Print.error(e)
-
-# @task
-# def upload_exec_w(ctx):
-#     ''' Pull Wahoo code and compile on remote servers '''
-#     try:
-#         Bench(ctx).pull_exec_wahoo()
-#     except BenchError as e:
-#         Print.error(e)
 
 @task
 def remote_w(ctx, protocol='wahoo'):
