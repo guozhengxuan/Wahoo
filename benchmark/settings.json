@@ -5,7 +5,7 @@
         "accesskey": "/Users/zhengxuanguo/.aliyun/access_mainland.json"
     },
     "ports": {
-        "consensus": 8000
+        "consensus": 9000
     },
     "instances": {
         "type": "ecs.g9i.xlarge",

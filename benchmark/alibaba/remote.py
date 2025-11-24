@@ -167,20 +167,60 @@ class Bench:
                 raise ExecutionError(f'Installation failed on {host}: {result.stderr}')
 
             # Pull or clone the repository
-            result = c.run('test -d Wahoo', warn=True, hide=True)
+            result = c.run('test -d ~/Wahoo', warn=True, hide=True)
             if result.ok:
                 # Directory exists, pull latest changes
-                c.run(f'cd Wahoo && git fetch origin && git checkout {branch} && git pull origin {branch}', hide=True)
+                c.run(f'cd ~/Wahoo && git fetch origin && git checkout {branch} && git pull origin {branch}', hide=True)
             else:
                 # Directory doesn't exist, clone the repository
-                c.run(f'git clone -b {branch} {repo_url}', hide=True)
+                c.run(f'cd ~ && git clone -b {branch} {repo_url}', hide=True)
+
+            # Verify Wahoo directory exists after clone/pull
+            result = c.run('test -d ~/Wahoo', warn=True, hide=True)
+            if result.failed:
+                raise ExecutionError(f'Wahoo directory not found on {host} after install')
 
             return host
 
         hosts = self.manager.hosts(flat=True)
         try:
             run_concurrent_tasks(install_and_pull, hosts, "Installing dependencies and pulling code")
-            Print.heading(f'Initialized testbed of {len(hosts)} nodes')
+
+            # Final verification: check all hosts have Wahoo and Go installed
+            Print.info('Verifying installation on all hosts...')
+            def verify_install(host):
+                c = Connection(host, user='root', connect_kwargs=self.connect)
+
+                # Check Wahoo directory
+                result = c.run('test -d ~/Wahoo', warn=True, hide=True)
+                if result.failed:
+                    return (host, 'Wahoo directory missing')
+
+                # Check Go installation
+                result = c.run('which go', warn=True, hide=True)
+                if result.failed:
+                    return (host, 'Go not found in PATH')
+
+                # Check Wahoo/main.go exists
+                result = c.run('test -f ~/Wahoo/main.go', warn=True, hide=True)
+                if result.failed:
+                    return (host, 'main.go missing')
+
+                return (host, 'OK')
+
+            verification_results = []
+            for host in hosts:
+                verification_results.append(verify_install(host))
+
+            # Report results
+            failed_hosts = [(h, r) for h, r in verification_results if r != 'OK']
+            if failed_hosts:
+                error_msg = '\n'.join([f'  {host}: {reason}' for host, reason in failed_hosts])
+                raise BenchError(f'Installation verification failed:\n{error_msg}', Exception('Verification failed'))
+
+            Print.heading(f'✓ Successfully initialized testbed of {len(hosts)} nodes')
+        except BenchError:
+            raise
         except Exception as e:
             raise BenchError('Failed to install and pull code on testbed', e)
 
@@ -469,9 +509,9 @@ class Bench:
         monitor_host = hosts[0]
         monitor_log = PathMaker.node_log_file(0, ts)
 
-        Print.info(f'Monitoring {protocol} benchmark completion (checking every 10 seconds)...')
-        max_wait_time = 120  # 2 mins max timeout
-        check_interval = 10   # Check every 10 seconds
+        Print.info(f'Monitoring {protocol} benchmark completion (checking every 5 seconds)...')
+        max_wait_time = 90  # 90s max timeout
+        check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
 
         while elapsed_time < max_wait_time:
@@ -582,22 +622,72 @@ class Bench:
         # Upload configuration files and compile BFT executable
         def upload_config_and_compile(i, host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
-            # Create working directory for Wahoo
+
+            # Ensure Wahoo directory exists
             c.run('mkdir -p ~/Wahoo', hide=True)
+
             # Upload config file (config_gen generates node{i}_0.yaml files)
-            config_file = f'config_gen/node{i}_0.yaml'
-            c.put(config_file, '~/Wahoo/config.yaml')
+            config_file = f'../config_gen/node{i}_0.yaml'
+
+            try:
+                c.put(config_file, '~/Wahoo/config.yaml')
+            except Exception as e:
+                raise BenchError(f'Failed to upload config to {host}', e)
+
+            # Verify config was uploaded
+            result = c.run('test -f ~/Wahoo/config.yaml', warn=True, hide=True)
+            if result.failed:
+                raise ExecutionError(f'Config file not found on {host} after upload')
 
             # Compile BFT executable from main.go
             Print.info(f'  {host}: Building BFT executable...')
-            result = c.run('cd ~/Wahoo && go build -o BFT main.go', warn=True, hide=True)
+            result = c.run('cd ~/Wahoo && go build -o BFT main.go', warn=True)
             if result.failed:
                 raise ExecutionError(f'BFT compilation failed on {host}: {result.stderr}')
+
+            # Verify BFT executable was created
+            result = c.run('test -f ~/Wahoo/BFT', warn=True, hide=True)
+            if result.failed:
+                raise ExecutionError(f'BFT executable not found on {host} after compilation')
 
             Print.info(f'  {host}: ✓ Config uploaded and BFT compiled')
             return host
 
         run_concurrent_tasks(upload_config_and_compile, list(enumerate(hosts)), "Uploading configs and compiling BFT")
+
+        # Final verification: check all hosts have config and BFT executable
+        Print.info('Verifying configuration on all hosts...')
+        def verify_config(host):
+            c = Connection(host, user='root', connect_kwargs=self.connect)
+
+            # Check config.yaml
+            result = c.run('test -f ~/Wahoo/config.yaml', warn=True, hide=True)
+            if result.failed:
+                return (host, 'config.yaml missing')
+
+            # Check BFT executable
+            result = c.run('test -f ~/Wahoo/BFT', warn=True, hide=True)
+            if result.failed:
+                return (host, 'BFT executable missing')
+
+            # Check BFT is executable
+            result = c.run('test -x ~/Wahoo/BFT', warn=True, hide=True)
+            if result.failed:
+                return (host, 'BFT not executable')
+
+            return (host, 'OK')
+
+        verification_results = []
+        for host in hosts:
+            verification_results.append(verify_config(host))
+
+        # Report results
+        failed_hosts = [(h, r) for h, r in verification_results if r != 'OK']
+        if failed_hosts:
+            error_msg = '\n'.join([f'  {host}: {reason}' for host, reason in failed_hosts])
+            raise BenchError(f'Configuration verification failed:\n{error_msg}', Exception('Verification failed'))
+
+        Print.info(f'✓ All {len(hosts)} nodes configured successfully')
 
     def run_wahoo(self, bench_parameters_dict, node_parameters_dict, protocol='wahoo', debug=False):
         """

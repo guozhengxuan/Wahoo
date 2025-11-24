@@ -184,7 +184,7 @@ def remote_w(ctx, protocol='wahoo'):
     bench_params = {
         'nodes': [4],
         'node_instance': 1,
-        'round': 30,
+        'round': 20,
         'rate': 5_000,
         'batch_size': [1000],
         'log_level': 0b1111,
