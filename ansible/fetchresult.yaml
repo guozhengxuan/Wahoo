@@ -4,7 +4,7 @@
     - name: fetch the results
       fetch:
         src: /root/testbed/{{inventory_hostname}}_{{item}}.txt
-        dest: /vagrant/result/
+        dest: /home/gzx/gitrepo/Wahoo/results
       loop:
         - 0
         - 1
@@ -13,7 +13,7 @@
     - name: fetch the results
       fetch:
         src: /root/testbed/{{inventory_hostname}}_{{item}}.txt
-        dest: /vagrant/result/
+        dest: /home/gzx/gitrepo/Wahoo/results
       loop:
         - 0
       when: (ansible_hostname is match "node0")

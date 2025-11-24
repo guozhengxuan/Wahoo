@@ -6,6 +6,10 @@ benchmark/logs
 benchmark/results
 benchmark/.*
 
+results
+
+BFT
+
 config_gen/hosts
 config_gen/node*.yaml
 

@@ -3,7 +3,7 @@
   tasks:
     - name: copy configuration file
       copy:
-        src: /vagrant/BFT/config_gen/{{inventory_hostname}}_{{item}}.yaml
+        src: /home/gzx/gitrepo/Wahoo/config_gen/{{inventory_hostname}}_{{item}}.yaml
         dest: /root/BFT{{item}}/config.yaml
       loop:
         - 0
@@ -11,7 +11,7 @@
 
     - name: copy configuration file
       copy:
-        src: /vagrant/BFT/config_gen/{{inventory_hostname}}_{{item}}.yaml
+        src: /home/gzx/gitrepo/Wahoo/config_gen/{{inventory_hostname}}_{{item}}.yaml
         dest: /root/BFT{{item}}/config.yaml
       loop:
         - 0

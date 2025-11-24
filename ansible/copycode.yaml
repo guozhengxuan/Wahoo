@@ -3,7 +3,7 @@
   tasks:
     - name: clone BFT
       copy:
-        src: /vagrant/BFT/BFT
+        src: /home/gzx/gitrepo/Wahoo/BFT
         dest: /root/BFT{{item}}/
       loop:
         - 0
@@ -11,7 +11,7 @@
 
     - name: clone BFT
       copy:
-        src: /vagrant/BFT/BFT
+        src: /home/gzx/gitrepo/Wahoo/BFT
         dest: /root/BFT{{item}}/
       loop:
         - 0

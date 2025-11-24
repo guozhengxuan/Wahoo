@@ -1,11 +1,11 @@
 {
     "key": {
         "name": "Loom",
-        "path": "/Users/zhengxuanguo/.ssh/id_ed25519",
-        "accesskey": "/Users/zhengxuanguo/.aliyun/access_mainland.json"
+        "path": "/home/gzx/.ssh/id_ed25519",
+        "accesskey": "/home/gzx/.aliyun/access_mainland.json"
     },
     "ports": {
-        "consensus": 8000
+        "consensus": 9000
     },
     "instances": {
         "type": "ecs.g9i.xlarge",

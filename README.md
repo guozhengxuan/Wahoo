@@ -47,7 +47,8 @@ Now you should enter the ansible directory to take the next operations.You need 
 ##### 3.2.1 Login without passwords
 The following code needs to be adjusted according to your actual situation.
 ```
-ansible -i ./hosts BFT -m authorized_key -a "user=root key='{{lookup('file', '/home/root/.ssh/id_rsa.pub')}}' path='/home/root/.ssh/authorized_keys' manage_dir=no" --ask-pass -c paramiko
+ANSIBLE_HOST_KEY_CHECKING=False ansible -i ./hosts BFT -m authorized_key -a "user=root key='{{lookup('file', 
+  '/home/gzx/.ssh/id_ed25519.pub')}}' path=/root/.ssh/authorized_keys manage_dir=yes" --ask-pass
 ```
 ##### 3.2.2 Configure servers via ansible
 ```

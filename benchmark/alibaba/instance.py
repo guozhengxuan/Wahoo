@@ -312,7 +312,7 @@ class InstanceManager:
         config_data['IPs'] = ips_dict
 
         # Set p2p_port as a single value (not a map)
-        config_data['p2p_port'] = 9000
+        config_data['p2p_port'] = self.settings.consensus_port
 
         # Write back to file
         with open(config_template_path, 'w') as f:
