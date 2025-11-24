@@ -1,0 +1,19 @@
+node starts the Wahoo!
+2025-11-21T00:11:59.011+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=1 block-proposer=node1
+2025-11-21T00:11:59.019+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=3 block-proposer=node1
+2025-11-21T00:11:59.028+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=5 block-proposer=node2
+2025-11-21T00:11:59.036+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=7 block-proposer=node3
+2025-11-21T00:11:59.046+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=9 block-proposer=node0
+2025-11-21T00:11:59.055+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=11 block-proposer=node2
+2025-11-21T00:11:59.064+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=13 block-proposer=node3
+2025-11-21T00:11:59.073+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=15 block-proposer=node1
+2025-11-21T00:11:59.082+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=17 block-proposer=node2
+2025-11-21T00:11:59.091+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=19 block-proposer=node2
+2025-11-21T00:11:59.100+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=21 block-proposer=node3
+2025-11-21T00:11:59.109+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=23 block-proposer=node1
+2025-11-21T00:11:59.118+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=25 block-proposer=node1
+2025-11-21T00:11:59.128+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=27 block-proposer=node0
+2025-11-21T00:11:59.136+0800 [INFO]  Wahoo-node: commit the leader block: node=node1 round=29 block-proposer=node2
+2025-11-21T00:12:04.141+0800 [INFO]  Wahoo-node: the average: latency=0.016778329548672567 throughput=606126.5501585946
+2025-11-21T00:12:04.141+0800 [INFO]  Wahoo-node: the total commit: block number=113 time=0.186429715
+2025-11-21T00:12:04.141+0800 [INFO]  Wahoo-node: the number of qurey: number=0

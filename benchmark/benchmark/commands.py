@@ -21,7 +21,7 @@ class CommandMaker:
 
     @staticmethod
     def make_logs_dir(ts):
-        return f'mkdir -p {PathMaker.logs_path(ts)}'
+        return f'mkdir -p {PathMaker.remote_log_path(ts)}'
 
     @staticmethod
     def clean_logs():

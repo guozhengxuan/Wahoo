@@ -1,0 +1,19 @@
+node starts the Wahoo!
+2025-11-21T00:11:59.011+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=1 block-proposer=node1
+2025-11-21T00:11:59.020+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=3 block-proposer=node1
+2025-11-21T00:11:59.029+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=5 block-proposer=node2
+2025-11-21T00:11:59.037+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=7 block-proposer=node3
+2025-11-21T00:11:59.047+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=9 block-proposer=node0
+2025-11-21T00:11:59.056+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=11 block-proposer=node2
+2025-11-21T00:11:59.065+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=13 block-proposer=node3
+2025-11-21T00:11:59.074+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=15 block-proposer=node1
+2025-11-21T00:11:59.083+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=17 block-proposer=node2
+2025-11-21T00:11:59.092+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=19 block-proposer=node2
+2025-11-21T00:11:59.101+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=21 block-proposer=node3
+2025-11-21T00:11:59.110+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=23 block-proposer=node1
+2025-11-21T00:11:59.119+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=25 block-proposer=node1
+2025-11-21T00:11:59.128+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=27 block-proposer=node0
+2025-11-21T00:11:59.138+0800 [INFO]  Wahoo-node: commit the leader block: node=node0 round=29 block-proposer=node2
+2025-11-21T00:12:04.142+0800 [INFO]  Wahoo-node: the average: latency=0.01779491007964602 throughput=827917.1676053976
+2025-11-21T00:12:04.142+0800 [INFO]  Wahoo-node: the total commit: block number=113 time=0.136487084
+2025-11-21T00:12:04.142+0800 [INFO]  Wahoo-node: the number of qurey: number=3

@@ -5,7 +5,7 @@ from fabric import Connection, ThreadingGroup as Group
 from fabric.exceptions import GroupException
 from paramiko import Ed25519Key
 from paramiko.ssh_exception import PasswordRequiredException, SSHException
-from os.path import basename, splitext
+from os.path import basename, splitext, join
 from time import sleep
 import subprocess
 import concurrent.futures
@@ -22,11 +22,13 @@ from alibaba.instance import InstanceManager
 
 def run_concurrent_tasks(task_fn, iterable, desc, max_workers=10):
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(iterable))) as executor:
-        futures = {executor.submit(task_fn, *args) if isinstance(args, tuple) 
+        futures = {executor.submit(task_fn, *args) if isinstance(args, tuple)
                     else executor.submit(task_fn, args): args for args in iterable}
         with tqdm(total=len(futures), desc=desc) as pbar:
             for future in concurrent.futures.as_completed(futures):
                 pbar.update(1)
+                # Propagate any exceptions that occurred during task execution
+                future.result()
 
 
 class FabricError(Exception):
@@ -160,6 +162,8 @@ class Bench:
 
         def install_and_pull(host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
+            remote_root = PathMaker.remote_root_path()
+            remote_wahoo = PathMaker.remote_wahoo_path()
 
             # Install dependencies
             result = c.run(' && '.join(cmd), hide=True, warn=True)
@@ -167,16 +171,16 @@ class Bench:
                 raise ExecutionError(f'Installation failed on {host}: {result.stderr}')
 
             # Pull or clone the repository
-            result = c.run('test -d ~/Wahoo', warn=True, hide=True)
+            result = c.run(f'test -d {remote_wahoo}', warn=True, hide=True)
             if result.ok:
                 # Directory exists, pull latest changes
-                c.run(f'cd ~/Wahoo && git fetch origin && git checkout {branch} && git pull origin {branch}', hide=True)
+                c.run(f'cd {remote_wahoo} && git fetch origin && git checkout {branch} && git pull origin {branch}', hide=True)
             else:
                 # Directory doesn't exist, clone the repository
-                c.run(f'cd ~ && git clone -b {branch} {repo_url}', hide=True)
+                c.run(f'cd {remote_root} && git clone -b {branch} {repo_url}', hide=True)
 
             # Verify Wahoo directory exists after clone/pull
-            result = c.run('test -d ~/Wahoo', warn=True, hide=True)
+            result = c.run(f'test -d {remote_wahoo}', warn=True, hide=True)
             if result.failed:
                 raise ExecutionError(f'Wahoo directory not found on {host} after install')
 
@@ -190,9 +194,10 @@ class Bench:
             Print.info('Verifying installation on all hosts...')
             def verify_install(host):
                 c = Connection(host, user='root', connect_kwargs=self.connect)
+                remote_wahoo = PathMaker.remote_wahoo_path()
 
                 # Check Wahoo directory
-                result = c.run('test -d ~/Wahoo', warn=True, hide=True)
+                result = c.run(f'test -d {remote_wahoo}', warn=True, hide=True)
                 if result.failed:
                     return (host, 'Wahoo directory missing')
 
@@ -202,7 +207,7 @@ class Bench:
                     return (host, 'Go not found in PATH')
 
                 # Check Wahoo/main.go exists
-                result = c.run('test -f ~/Wahoo/main.go', warn=True, hide=True)
+                result = c.run(f'test -f {remote_wahoo}/main.go', warn=True, hide=True)
                 if result.failed:
                     return (host, 'main.go missing')
 
@@ -480,11 +485,10 @@ class Bench:
 
         # Run the nodes using concurrent execution
         def start_node(node_idx, host):
-            log_file = PathMaker.node_log_file(node_idx, ts)
-            cmd = f'cd ~/Wahoo && ./BFT'
+            cmd = f'cd {PathMaker.remote_wahoo_path()} && ./BFT'
 
             try:
-                self._background_run(host, cmd, log_file)
+                self._background_run(host, cmd, PathMaker.remote_log_file(node_idx, ts))
                 Print.info(f'  Node {node_idx} started on {host}')
                 return host
             except Exception as e:
@@ -497,17 +501,17 @@ class Bench:
                 node_idx = i * node_instance + j
                 node_tasks.append((node_idx, host))
 
-        run_concurrent_tasks(lambda x: start_node(x[0], x[1]), node_tasks, "Starting Wahoo nodes")
+        run_concurrent_tasks(start_node, node_tasks, "Starting Wahoo nodes")
 
         # Wait for the nodes to synchronize
         Print.info('Waiting for the nodes to synchronize...')
-        sleep(20)
+        sleep(10)
 
         # Monitor for completion based on preset rounds in config
         # Wahoo's RunLoop() ends after completing n.roundNumber rounds
         # Check the first non-faulty node's log file
         monitor_host = hosts[0]
-        monitor_log = PathMaker.node_log_file(0, ts)
+        monitor_log = PathMaker.remote_log_file(0, ts)
 
         Print.info(f'Monitoring {protocol} benchmark completion (checking every 5 seconds)...')
         max_wait_time = 90  # 90s max timeout
@@ -555,9 +559,19 @@ class Bench:
         def download_logs_from_host(host_idx, host):
             for j in range(node_instance):
                 node_idx = host_idx * node_instance + j
-                self.download_from_host(host,
-                    PathMaker.node_log_file(node_idx, ts),
-                    PathMaker.node_log_file(node_idx, ts))
+                remote_log_path = PathMaker.remote_log_file(node_idx, ts)
+                local_log_path = PathMaker.local_node_log_file(node_idx, ts)
+
+                # Ensure local log directory exists
+                import os
+                os.makedirs(os.path.dirname(local_log_path), exist_ok=True)
+
+                try:
+                    self.download_from_host(host, remote_log_path, local_log_path)
+                    Print.info(f'  Downloaded {remote_log_path} from {host}')
+                except Exception as e:
+                    Print.warn(f'  Failed to download {remote_log_path} from {host}: {e}')
+                    raise
             return host_idx
 
         run_concurrent_tasks(download_logs_from_host, list(enumerate(hosts)), "Downloading Wahoo logs")
@@ -575,7 +589,7 @@ class Bench:
         Print.info('Generating Wahoo configuration files...')
 
         # Cleanup all local configuration files.
-        cmd = 'rm -f ../config_gen/*.yaml'
+        cmd = f'rm -f {PathMaker.config_gen_dir()}/*.yaml'
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
         num_nodes = len(hosts)
@@ -598,14 +612,14 @@ class Bench:
         }
 
         # Write config template
-        template_path = '../config_gen/config_template.yaml'
+        template_path = PathMaker.config_gen_template_file()
         with open(template_path, 'w') as f:
             yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
 
         # Run config_gen to generate individual node configs
         Print.info(f'Running config_gen to generate {num_nodes} node configurations...')
         result = subprocess.run(
-            'cd ../config_gen && go run main.go',
+            f'cd {PathMaker.config_gen_dir()} && go run main.go',
             shell=True,
             capture_output=True,
             text=True
@@ -615,7 +629,8 @@ class Bench:
             raise BenchError(f'Wahoo config generation failed: {result.stderr}')
 
         # Cleanup all nodes.
-        cmd = 'rm -rf ~/Wahoo/config.yaml || true'
+        remote_wahoo = PathMaker.remote_wahoo_path()
+        cmd = f'rm -rf {remote_wahoo}/config.yaml || true'
         g = Group(*hosts, user='root', connect_kwargs=self.connect)
         g.run(cmd, hide=True)
 
@@ -623,34 +638,33 @@ class Bench:
         def upload_config_and_compile(i, host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
 
-            # Ensure Wahoo directory exists
-            c.run('mkdir -p ~/Wahoo', hide=True)
+            # Get remote Wahoo directory and create it
+            remote_wahoo = PathMaker.remote_wahoo_path()
+
+            result = c.run(f'mkdir -p {remote_wahoo}', warn=True, hide=True)
+            if result.failed:
+                raise ExecutionError(f'Failed to create {remote_wahoo} directory on {host}: {result.stderr}')
 
             # Upload config file (config_gen generates node{i}_0.yaml files)
-            config_file = f'../config_gen/node{i}_0.yaml'
+            config_file = PathMaker.config_gen_node_file(i)
+
+            # Verify local file exists before upload
+            import os
+            if not os.path.exists(config_file):
+                raise FileNotFoundError(f'Local config file not found: {config_file}')
 
             try:
-                c.put(config_file, '~/Wahoo/config.yaml')
+                remote_config_path = f'{remote_wahoo}/config.yaml'
+                c.put(config_file, remote_config_path)
             except Exception as e:
-                raise BenchError(f'Failed to upload config to {host}', e)
-
-            # Verify config was uploaded
-            result = c.run('test -f ~/Wahoo/config.yaml', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'Config file not found on {host} after upload')
+                raise BenchError(f'Failed to upload {config_file} to {host}:{remote_config_path}', e)
 
             # Compile BFT executable from main.go
             Print.info(f'  {host}: Building BFT executable...')
-            result = c.run('cd ~/Wahoo && go build -o BFT main.go', warn=True)
+            result = c.run(f'cd {remote_wahoo} && go build -o BFT main.go', warn=True)
             if result.failed:
                 raise ExecutionError(f'BFT compilation failed on {host}: {result.stderr}')
 
-            # Verify BFT executable was created
-            result = c.run('test -f ~/Wahoo/BFT', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'BFT executable not found on {host} after compilation')
-
-            Print.info(f'  {host}: ✓ Config uploaded and BFT compiled')
             return host
 
         run_concurrent_tasks(upload_config_and_compile, list(enumerate(hosts)), "Uploading configs and compiling BFT")
@@ -660,32 +674,27 @@ class Bench:
         def verify_config(host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
 
+            # Get remote Wahoo directory
+            remote_wahoo = PathMaker.remote_wahoo_path()
+
             # Check config.yaml
-            result = c.run('test -f ~/Wahoo/config.yaml', warn=True, hide=True)
+            result = c.run(f'test -f {remote_wahoo}/config.yaml', warn=True, hide=True)
             if result.failed:
-                return (host, 'config.yaml missing')
+                raise ExecutionError(f'config.yaml missing on {host}')
 
             # Check BFT executable
-            result = c.run('test -f ~/Wahoo/BFT', warn=True, hide=True)
+            result = c.run(f'test -f {remote_wahoo}/BFT', warn=True, hide=True)
             if result.failed:
-                return (host, 'BFT executable missing')
+                raise ExecutionError(f'BFT executable missing on {host}')
 
             # Check BFT is executable
-            result = c.run('test -x ~/Wahoo/BFT', warn=True, hide=True)
+            result = c.run(f'test -x {remote_wahoo}/BFT', warn=True, hide=True)
             if result.failed:
-                return (host, 'BFT not executable')
+                raise ExecutionError(f'BFT not executable on {host}')
 
-            return (host, 'OK')
+            return host
 
-        verification_results = []
-        for host in hosts:
-            verification_results.append(verify_config(host))
-
-        # Report results
-        failed_hosts = [(h, r) for h, r in verification_results if r != 'OK']
-        if failed_hosts:
-            error_msg = '\n'.join([f'  {host}: {reason}' for host, reason in failed_hosts])
-            raise BenchError(f'Configuration verification failed:\n{error_msg}', Exception('Verification failed'))
+        run_concurrent_tasks(verify_config, hosts, "Verifying configuration")
 
         Print.info(f'✓ All {len(hosts)} nodes configured successfully')
 
@@ -747,9 +756,9 @@ class Bench:
                         result = self._logs_wahoo(hosts, node_parameters.faults, protocol, bench_parameters, self.ts)
 
                         # Save results
-                        result_file = f'./wahoo_results/{protocol}_{n}_{batch_size}_{self.ts}.txt'
+                        result_file = join(PathMaker.wahoo_results_dir(), f'{protocol}_{n}_{batch_size}_{self.ts}.txt')
                         import os
-                        os.makedirs('./wahoo_results', exist_ok=True)
+                        os.makedirs(PathMaker.wahoo_results_dir(), exist_ok=True)
                         with open(result_file, 'w') as f:
                             f.write(str(result))
 

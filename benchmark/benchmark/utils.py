@@ -1,4 +1,5 @@
-from os.path import join
+from os.path import join, dirname, abspath
+import os
 
 
 class BenchError(Exception):
@@ -41,6 +42,12 @@ class PathMaker:
     def logs_path(ts):
         assert isinstance(ts, str)
         return f'logs/{ts}'
+    
+    @staticmethod
+    def local_node_log_file(i, ts):
+        """Generic log file for Wahoo nodes"""
+        assert isinstance(i, int) and i >= 0
+        return join(PathMaker.logs_path(ts), f'node-{i}.log')
 
     @staticmethod
     def node_log_info_file(i,ts):
@@ -74,10 +81,82 @@ class PathMaker:
         )
 
     @staticmethod
-    def node_log_file(i, ts):
+    def project_root():
+        """Returns absolute path to the Wahoo project root directory"""
+        # benchmark/benchmark/utils.py -> benchmark/benchmark -> benchmark -> Wahoo (project root)
+        return abspath(join(dirname(__file__), '..', '..'))
+
+    @staticmethod
+    def benchmark_dir():
+        """Returns absolute path to the benchmark directory"""
+        return join(PathMaker.project_root(), 'benchmark')
+
+    @staticmethod
+    def config_gen_dir():
+        """Returns absolute path to the config_gen directory"""
+        return join(PathMaker.project_root(), 'config_gen')
+
+    @staticmethod
+    def config_gen_node_file(i):
+        """Returns absolute path to a config_gen node file"""
+        assert isinstance(i, int) and i >= 0
+        return join(PathMaker.config_gen_dir(), f'node{i}_0.yaml')
+
+    @staticmethod
+    def config_gen_template_file():
+        """Returns absolute path to the config_gen template file"""
+        return join(PathMaker.config_gen_dir(), 'config_template.yaml')
+
+    @staticmethod
+    def wahoo_results_dir():
+        """Returns absolute path to the wahoo_results directory"""
+        return join(PathMaker.benchmark_dir(), 'wahoo_results')
+
+    @staticmethod
+    def remote_root_path():
+        """
+        Get remote root directory path.
+
+        Args:
+            connection: fabric.Connection object
+
+        Returns:
+            str: remote root path ('/')
+        """
+        return '/'
+
+    @staticmethod
+    def remote_wahoo_path():
+        """
+        Get remote Wahoo directory path.
+
+        Args:
+            connection: fabric.Connection object
+
+        Returns:
+            str: remote Wahoo directory path ('/Wahoo')
+        """
+        return '/Wahoo'
+
+    @staticmethod
+    def remote_log_path(ts):
+        """
+        Get remote Wahoo logs directory path.
+
+        Args:
+            connection: fabric.Connection object
+
+        Returns:
+            str: remote log directory path ('/logs/{ts}')
+        """
+        assert isinstance(ts, str)
+        return f'/logs/{ts}'
+    
+    @staticmethod
+    def remote_log_file(i, ts):
         """Generic log file for Wahoo nodes"""
         assert isinstance(i, int) and i >= 0
-        return join(PathMaker.logs_path(ts), f'node-{i}.log')
+        return join(PathMaker.remote_log_path(ts), f'node-{i}.log')
 
     @staticmethod
     def wahoo_config_path():
