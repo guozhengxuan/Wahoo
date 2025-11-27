@@ -16,7 +16,7 @@ from functools import partial
 from benchmark.config import Committee, Key, TSSKey, NodeParameters, BenchParameters, ConfigError
 from benchmark.utils import BenchError, Print, PathMaker, progress_bar
 from benchmark.commands import CommandMaker
-from benchmark.logs import LogParser, ParseError
+from benchmark.logs import LogParser, WahooLogParser, ParseError
 from alibaba.instance import InstanceManager
 
 
@@ -82,10 +82,11 @@ class Bench:
 
     def _select_hosts(self, bench_parameters):
         nodes = max(bench_parameters.nodes)
+        node_instance = bench_parameters.node_instance
 
         # Ensure there are enough hosts.
         hosts = self.manager.hosts()
-        if sum(len(x) for x in hosts.values()) < nodes:
+        if sum(len(x)*node_instance for x in hosts.values()) < nodes:
             return []
 
         # Select the hosts in different data centers.
@@ -485,7 +486,8 @@ class Bench:
 
         # Run the nodes using concurrent execution
         def start_node(node_idx, host):
-            cmd = f'cd {PathMaker.remote_wahoo_path()} && ./BFT'
+            node_dir = PathMaker.remote_wahoo_node_path(node_idx)
+            cmd = f'cd {node_dir} && ./BFT'
 
             try:
                 self._background_run(host, cmd, PathMaker.remote_log_file(node_idx, ts))
@@ -514,7 +516,7 @@ class Bench:
         monitor_log = PathMaker.remote_log_file(0, ts)
 
         Print.info(f'Monitoring {protocol} benchmark completion (checking every 5 seconds)...')
-        max_wait_time = 90  # 90s max timeout
+        max_wait_time = 240  # 4min max timeout
         check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
 
@@ -576,12 +578,11 @@ class Bench:
 
         run_concurrent_tasks(download_logs_from_host, list(enumerate(hosts)), "Downloading Wahoo logs")
 
-        # For now, just return a simple result structure
-        # You may need to implement a Wahoo-specific log parser later
-        Print.info('Wahoo logs downloaded')
-        return {'protocol': protocol, 'timestamp': ts, 'nodes': len(hosts)}
+        # Parse logs using WahooLogParser
+        Print.info('Parsing Wahoo logs and computing performance...')
+        return WahooLogParser.process(PathMaker.logs_path(ts), faults=faults, protocol=protocol, ddos=False)
 
-    def _config_wahoo(self, hosts, protocol, bench_parameters, node_parameters):
+    def _config_wahoo(self, hosts, protocol, batch_size, bench_parameters, node_parameters):
         """
         Generate Wahoo configuration files and upload to remote servers.
         Similar to _config but uses Wahoo's config_gen to generate configs.
@@ -592,20 +593,28 @@ class Bench:
         cmd = f'rm -f {PathMaker.config_gen_dir()}/*.yaml'
         subprocess.run([cmd], shell=True, stderr=subprocess.DEVNULL)
 
-        num_nodes = len(hosts)
+        node_instance = bench_parameters.node_instance
+        num_nodes = len(hosts) * node_instance
 
         # Generate config_template.yaml for config_gen
         cluster_ips = {}
+        p2p_ports = {}
+
         for i, host in enumerate(hosts):
-            node_name = f'node{i}'
-            cluster_ips[node_name] = host
+            for j in range(node_instance):
+                node_idx = i * node_instance + j
+                node_name = f'node{node_idx}'
+                cluster_ips[node_name] = host
+                # Assign different ports for instances on the same machine
+                p2p_ports[node_name] = self.settings.consensus_port + j
 
         config_data = {
             'IPs': cluster_ips,
-            'p2p_port': self.settings.consensus_port,
+            'p2p_ports': p2p_ports,
             'max_pool': node_parameters.json['pool']['max_pool'],
             'log_level': 3,
-            'batch_size': bench_parameters.batch_szie[0],
+            'batch_size':batch_size,
+            'tx_size': node_parameters.json['pool']['tx_size'],
             'round': bench_parameters.round,
             'faulty_number': node_parameters.faults,
             'protocol': protocol
@@ -628,75 +637,89 @@ class Bench:
         if result.returncode != 0:
             raise BenchError(f'Wahoo config generation failed: {result.stderr}')
 
-        # Cleanup all nodes.
+        # Cleanup all node instance directories
         remote_wahoo = PathMaker.remote_wahoo_path()
-        cmd = f'rm -rf {remote_wahoo}/config.yaml || true'
+        cmd = f'rm -rf {remote_wahoo}/node_* || true'
         g = Group(*hosts, user='root', connect_kwargs=self.connect)
         g.run(cmd, hide=True)
 
-        # Upload configuration files and compile BFT executable
-        def upload_config_and_compile(i, host):
+        # Upload configuration files and compile BFT executable for each instance
+        def upload_config_and_compile(host_idx, host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
-
-            # Get remote Wahoo directory and create it
             remote_wahoo = PathMaker.remote_wahoo_path()
 
-            result = c.run(f'mkdir -p {remote_wahoo}', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'Failed to create {remote_wahoo} directory on {host}: {result.stderr}')
+            # Upload and compile for all instances on this host
+            for j in range(node_instance):
+                node_idx = host_idx * node_instance + j
+                node_dir = PathMaker.remote_wahoo_node_path(node_idx)
 
-            # Upload config file (config_gen generates node{i}_0.yaml files)
-            config_file = PathMaker.config_gen_node_file(i)
+                # Create node instance directory
+                result = c.run(f'mkdir -p {node_dir}', warn=True, hide=True)
+                if result.failed:
+                    raise ExecutionError(f'Failed to create {node_dir} on {host}: {result.stderr}')
 
-            # Verify local file exists before upload
-            import os
-            if not os.path.exists(config_file):
-                raise FileNotFoundError(f'Local config file not found: {config_file}')
+                # Upload config file (config_gen generates node{node_idx}_0.yaml files)
+                config_file = PathMaker.config_gen_node_file(node_idx)
 
-            try:
-                remote_config_path = f'{remote_wahoo}/config.yaml'
-                c.put(config_file, remote_config_path)
-            except Exception as e:
-                raise BenchError(f'Failed to upload {config_file} to {host}:{remote_config_path}', e)
+                # Verify local file exists before upload
+                import os
+                if not os.path.exists(config_file):
+                    raise FileNotFoundError(f'Local config file not found: {config_file}')
 
-            # Compile BFT executable from main.go
-            Print.info(f'  {host}: Building BFT executable...')
-            result = c.run(f'cd {remote_wahoo} && go build -o BFT main.go', warn=True)
-            if result.failed:
-                raise ExecutionError(f'BFT compilation failed on {host}: {result.stderr}')
+                try:
+                    c.put(config_file, f'{node_dir}/config.yaml')
+                except Exception as e:
+                    raise BenchError(f'Failed to upload {config_file} to {host}:{node_dir}', e)
 
+                # Compile BFT using mv/build/mv approach
+                Print.info(f'  {host}: Building BFT executable for node_{node_idx}...')
+
+                # Move config to main Wahoo directory, compile, then move binary back
+                compile_cmd = (
+                    f'cd {remote_wahoo} && '
+                    f'mv {node_dir}/config.yaml ./config.yaml && '
+                    f'go build -o BFT main.go && '
+                    f'mv ./BFT {node_dir}/BFT && '
+                    f'mv ./config.yaml {node_dir}/config.yaml'
+                )
+                result = c.run(compile_cmd, warn=True, hide=True)
+                if result.failed:
+                    raise ExecutionError(f'BFT compilation failed for node_{node_idx} on {host}: {result.stderr}')
+
+            Print.info(f'  {host}: ✓ {node_instance} instances configured and compiled')
             return host
 
         run_concurrent_tasks(upload_config_and_compile, list(enumerate(hosts)), "Uploading configs and compiling BFT")
 
-        # Final verification: check all hosts have config and BFT executable
+        # Final verification: check all hosts have config and BFT executable for all instances
         Print.info('Verifying configuration on all hosts...')
-        def verify_config(host):
+        def verify_config(host_idx, host):
             c = Connection(host, user='root', connect_kwargs=self.connect)
 
-            # Get remote Wahoo directory
-            remote_wahoo = PathMaker.remote_wahoo_path()
+            for j in range(node_instance):
+                node_idx = host_idx * node_instance + j
+                node_dir = PathMaker.remote_wahoo_node_path(node_idx)
 
-            # Check config.yaml
-            result = c.run(f'test -f {remote_wahoo}/config.yaml', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'config.yaml missing on {host}')
+                # Check config.yaml
+                result = c.run(f'test -f {node_dir}/config.yaml', warn=True, hide=True)
+                if result.failed:
+                    raise ExecutionError(f'config.yaml missing in {node_dir} on {host}')
 
-            # Check BFT executable
-            result = c.run(f'test -f {remote_wahoo}/BFT', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'BFT executable missing on {host}')
+                # Check BFT executable
+                result = c.run(f'test -f {node_dir}/BFT', warn=True, hide=True)
+                if result.failed:
+                    raise ExecutionError(f'BFT executable missing in {node_dir} on {host}')
 
-            # Check BFT is executable
-            result = c.run(f'test -x {remote_wahoo}/BFT', warn=True, hide=True)
-            if result.failed:
-                raise ExecutionError(f'BFT not executable on {host}')
+                # Check BFT is executable
+                result = c.run(f'test -x {node_dir}/BFT', warn=True, hide=True)
+                if result.failed:
+                    raise ExecutionError(f'BFT not executable in {node_dir} on {host}')
 
             return host
 
-        run_concurrent_tasks(verify_config, hosts, "Verifying configuration")
+        run_concurrent_tasks(verify_config, list(enumerate(hosts)), "Verifying configuration")
 
-        Print.info(f'✓ All {len(hosts)} nodes configured successfully')
+        Print.info(f'✓ All {num_nodes} node instances configured successfully ({len(hosts)} hosts × {node_instance} instances)')
 
     def run_wahoo(self, bench_parameters_dict, node_parameters_dict, protocol='wahoo', debug=False):
         """
@@ -734,16 +757,16 @@ class Bench:
         for n in bench_parameters.nodes:
             hosts = selected_hosts[:n]
 
-            # Generate and upload Wahoo configs for each node
-            try:
-                self._config_wahoo(hosts, protocol, bench_parameters, node_parameters)
-            except (subprocess.SubprocessError, GroupException) as e:
-                e = FabricError(e) if isinstance(e, GroupException) else e
-                Print.error(BenchError('Failed to configure Wahoo nodes', e))
-                continue
-
             for batch_size in bench_parameters.batch_szie:
                 Print.heading(f'\nRunning {n} nodes (batch size: {batch_size:,})')
+
+                # Generate and upload Wahoo configs for each node
+                try:
+                    self._config_wahoo(hosts, protocol, batch_size, bench_parameters, node_parameters)
+                except (subprocess.SubprocessError, GroupException) as e:
+                    e = FabricError(e) if isinstance(e, GroupException) else e
+                    Print.error(BenchError('Failed to configure Wahoo nodes', e))
+                    continue
 
                 self.ts = datetime.now().strftime(r"%Y-%m-%d-%H-%M-%S")
 
@@ -753,14 +776,16 @@ class Bench:
                     try:
                         self._run_single_wahoo(hosts, bench_parameters, node_parameters, self.ts, protocol, debug)
 
-                        result = self._logs_wahoo(hosts, node_parameters.faults, protocol, bench_parameters, self.ts)
+                        parser = self._logs_wahoo(hosts, node_parameters.faults, protocol, bench_parameters, self.ts)
 
                         # Save results
                         result_file = join(PathMaker.wahoo_results_dir(), f'{protocol}_{n}_{batch_size}_{self.ts}.txt')
                         import os
                         os.makedirs(PathMaker.wahoo_results_dir(), exist_ok=True)
+
+                        # Write results to file
                         with open(result_file, 'w') as f:
-                            f.write(str(result))
+                            f.write(parser.result())
 
                         Print.info(f'Results saved to {result_file}')
 

@@ -139,6 +139,20 @@ class PathMaker:
         return '/Wahoo'
 
     @staticmethod
+    def remote_wahoo_node_path(i):
+        """
+        Get remote Wahoo node instance directory path.
+
+        Args:
+            i: node instance index (0-based)
+
+        Returns:
+            str: remote Wahoo node instance directory path ('/Wahoo/node_{i}')
+        """
+        assert isinstance(i, int) and i >= 0
+        return f'/Wahoo/node_{i}'
+
+    @staticmethod
     def remote_log_path(ts):
         """
         Get remote Wahoo logs directory path.

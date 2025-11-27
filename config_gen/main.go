@@ -95,25 +95,18 @@ func main() {
 	}
 	sort.Strings(clusterName)
 
-	// deal with p2p_port as a single integer value
-	p2pPort := viperRead.GetInt("p2p_port")
-	if p2pPort == 0 {
-		panic("p2p_port is not set or invalid")
+	// deal with p2p_ports as a string map
+	P2pPortMapInterface := viperRead.GetStringMap("p2p_ports")
+	if len(P2pPortMapInterface) == 0 {
+		panic("p2p_ports is not set or empty")
 	}
 
-	// Assign the same port to all nodes
 	p2pPortMapInterface := make(map[string]int)
-	for i := 0; i < nodeNumber; i++ {
-		for j := 0; j < ProcessCount; j++ {
-			if i == 0 {
-				for k := 0; k < leaderCount; k++ {
-					subScript := strconv.Itoa(k)
-					p2pPortMapInterface["node"+subScript] = p2pPort
-				}
-				break
-			}
-			subScript := strconv.Itoa((i-1)*ProcessCount + j + leaderCount)
-			p2pPortMapInterface["node"+subScript] = p2pPort
+	for name, port := range P2pPortMapInterface {
+		if portAsInt, ok := port.(int); ok {
+			p2pPortMapInterface[name] = portAsInt
+		} else {
+			panic("p2p_ports values must be integers")
 		}
 	}
 	// deal with rpc_listen_port as a string map
@@ -155,6 +148,7 @@ func main() {
 	logLevel := viperRead.GetInt("log_level")
 	round := viperRead.GetInt("round")
 	protocol := viperRead.GetString("protocol")
+	txSize := viperRead.GetInt("tx_size")
 	faultyNum := viperRead.GetInt("faulty_number")
 	faultyNode := generateRandomNumber(TotalNodeNum, faultyNum)
 	fmt.Println("FaultyNodes:", faultyNode)
@@ -198,6 +192,7 @@ func main() {
 			viperWrite.Set("peers_rpc_port", rpcPortMapInterface)
 			viperWrite.Set("max_pool", maxPool)
 			viperWrite.Set("batch_size", batchSize)
+			viperWrite.Set("tx_size", txSize)
 			viperWrite.Set("PrivKeyED", privKeysED25519["node"+strconv.Itoa(replicaId)])
 			viperWrite.Set("cluster_pubkeyed", pubKeysED25519)
 			viperWrite.Set("TSShare", hex.EncodeToString(shareAsBytes))

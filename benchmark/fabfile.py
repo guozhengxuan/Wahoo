@@ -42,7 +42,7 @@ def local(ctx):
         Print.error(e)
 
 @task
-def create(ctx, nodes=4):
+def create(ctx, nodes=2):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -177,16 +177,14 @@ def remote_w(ctx, protocol='wahoo'):
         protocol: Protocol to test - 'wahoo', 'tusk', or 'gradeddag'
 
     Usage:
-        fab remote_w                  # Run Wahoo (default)
-        fab remote_w:protocol=tusk    # Run Tusk
-        fab remote_w:protocol=gradeddag  # Run GradedDAG
+        fab remote-w
     '''
     bench_params = {
-        'nodes': [4],
+        'nodes': [7],
         'node_instance': 1,
-        'round': 20,
-        'rate': 5_000,
-        'batch_size': [1000],
+        'round': 12,
+        'rate': 8_000,
+        'batch_size': [8000, 9000],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1

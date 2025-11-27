@@ -1,5 +1,6 @@
 [BFT]
-node0 ansible_host=47.87.129.128 ansible_user=root
-node1 ansible_host=47.87.132.32 ansible_user=root
-node2 ansible_host=47.87.129.4 ansible_user=root
-node3 ansible_host=47.87.133.138 ansible_user=root
+node0 ansible_host=47.87.132.105 ansible_user=root
+node1 ansible_host=8.208.71.220 ansible_user=root
+node2 ansible_host=47.87.32.198 ansible_user=root
+node3 ansible_host=47.84.17.130 ansible_user=root
+node4 ansible_host=47.80.5.114 ansible_user=root

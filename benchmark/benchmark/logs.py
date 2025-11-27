@@ -12,6 +12,100 @@ class ParseError(Exception):
     pass
 
 
+class WahooLogParser:
+    def __init__(self, nodes, faults, protocol, ddos):
+        assert all(isinstance(x, str) for x in nodes)
+
+        self.protocol = protocol
+        self.ddos = ddos
+        self.faults = faults
+        self.committee_size = len(nodes)
+
+        # Parse the nodes logs sequentially (avoid multiprocessing issues)
+        try:
+            results = [self._parse_nodes(log) for log in nodes]
+        except (ValueError, IndexError) as e:
+            raise ParseError(f'Failed to parse node logs: {e}')
+
+        if results:
+            latencies, throughputs = zip(*results)
+            self.latencies = [lat for lat in latencies if lat is not None]
+            self.throughputs = [tps for tps in throughputs if tps is not None]
+        else:
+            self.latencies = []
+            self.throughputs = []
+
+    def _parse_nodes(self, log):
+        """Parse a single node log file to extract latency and throughput"""
+        # Search for the average latency and throughput line first
+        # Format: "the average: latency=1.1788882691893687 throughput=5048.848847131798"
+        match = search(r'the average: latency=([\d.]+) throughput=([\d.]+)', log)
+
+        if match:
+            latency = float(match.group(1))
+            throughput = float(match.group(2))
+
+            # Check if there was a panic after the results were printed
+            if search(r'panic:', log) is not None or search(r'panic\(', log) is not None:
+                Print.warn('Warning: Found a node with panic error (after results), including results anyway')
+
+            return latency, throughput
+        else:
+            # If no match found, check if it's because of a panic
+            if search(r'panic:', log) is not None or search(r'panic\(', log) is not None:
+                Print.warn('Warning: Found a node with panic error, no results found')
+            return None, None
+
+    def _consensus_latency(self):
+        """Return average of all node latencies in milliseconds"""
+        if not self.latencies:
+            return 0
+        return mean(self.latencies) * 1000  # Convert to ms
+
+    def _consensus_throughput(self):
+        """Return average of all node throughputs"""
+        if not self.throughputs:
+            return 0
+        return mean(self.throughputs)
+
+    def result(self):
+        consensus_latency = self._consensus_latency()
+        consensus_tps = self._consensus_throughput()
+
+        return (
+            '\n'
+            '-----------------------------------------\n'
+            ' SUMMARY:\n'
+            '-----------------------------------------\n'
+            ' + CONFIG:\n'
+            f' Protocol: {self.protocol} \n'
+            f' DDOS attack: {self.ddos} \n'
+            f' Committee size: {self.committee_size} nodes\n'
+            f' Faults: {self.faults} nodes\n'
+            '\n'
+            ' + RESULTS:\n'
+            f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
+            f' Consensus latency: {round(consensus_latency):,} ms\n'
+            '-----------------------------------------\n'
+        )
+
+    def print(self, filename):
+        assert isinstance(filename, str)
+        with open(filename, 'a') as f:
+            f.write(self.result())
+
+    @classmethod
+    def process(cls, directory, faults=0, protocol="", ddos=False):
+        assert isinstance(directory, str)
+
+        nodes = []
+        for filename in sorted(glob(join(directory, 'node-*.log'))):
+            with open(filename, 'r') as f:
+                nodes += [f.read()]
+
+        return cls(nodes, faults=faults, protocol=protocol, ddos=ddos)
+
+
 class LogParser:
     def __init__(self,nodes, faults, protocol, ddos):
 

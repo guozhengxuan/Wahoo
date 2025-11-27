@@ -95,26 +95,6 @@ class InstanceManager:
             if sum(len(x) for x in ids.values()) == 0:
                 break
 
-    def _wait_for_ips(self, expected_count):
-        """
-        Wait until all instances have been assigned public IP addresses.
-
-        Args:
-            expected_count: The total number of instances expected to have IPs
-        """
-        max_attempts = 60  # Wait up to 60 seconds
-        for attempt in range(max_attempts):
-            sleep(1)
-            _, ips = self._get(['Running'])
-            ip_count = sum(len(x) for x in ips.values())
-            if ip_count >= expected_count:
-                Print.info(f'All {ip_count} instances have been assigned public IPs')
-                return
-            if attempt % 10 == 0:
-                Print.info(f'Waiting for IPs... ({ip_count}/{expected_count} assigned)')
-
-        raise BenchError(f'Timeout waiting for public IPs. Only {ip_count}/{expected_count} assigned after {max_attempts}s')
-
     def _create_security_group(self, client, region):
         try:
             temp = {}
@@ -259,18 +239,7 @@ class InstanceManager:
             # Wait for the instances to boot.
             Print.info('Waiting for all instances to boot...')
             self._wait(['Pending'])
-
-            # Wait for public IPs to be assigned
-            Print.info('Waiting for public IPs to be assigned...')
-            self._wait_for_ips(size)
-
             Print.heading(f'Successfully created {size} new instances')
-
-            # Write IPs to config_gen/config_template.yaml
-            self._write_ips_to_config_template()
-
-            # Generate Ansible hosts inventory file
-            self._write_ansible_hosts_file()
 
         except Exception as error:
             # Handle both Alibaba Cloud API errors and standard Python exceptions
@@ -280,68 +249,6 @@ class InstanceManager:
                     print(f"Recommend: {error.data.get('Recommend', 'N/A')}")
             # Re-raise the exception so it can be handled by the retry logic
             raise
-
-    def _write_ips_to_config_template(self):
-        """
-        Write the IPs of created instances to ../config_gen/config_template.yaml
-        """
-        Print.info('Writing instance IPs to ../config_gen/config_template.yaml...')
-
-        # Get the IPs of all running instances
-        hosts = self.hosts(flat=True)
-
-        # Build IPs dictionary
-        ips_dict = {}
-        for i, ip in enumerate(hosts):
-            node_name = f'node{i}'
-            ips_dict[node_name] = ip
-
-        # Path to config_template.yaml
-        config_template_path = '../config_gen/config_template.yaml'
-
-        # Check if config_template.yaml exists
-        if os.path.exists(config_template_path):
-            # Load existing config
-            with open(config_template_path, 'r') as f:
-                config_data = yaml.safe_load(f) or {}
-        else:
-            # Create new config
-            config_data = {}
-
-        # Update IPs entry
-        config_data['IPs'] = ips_dict
-
-        # Set p2p_port as a single value (not a map)
-        config_data['p2p_port'] = 9000
-
-        # Write back to file
-        with open(config_template_path, 'w') as f:
-            yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)
-
-        Print.info(f'Successfully wrote {len(hosts)} instance IPs to {config_template_path}')
-
-    def _write_ansible_hosts_file(self):
-        """
-        Generate Ansible hosts inventory file for the BFT group
-        """
-        Print.info('Generating Ansible hosts inventory file...')
-
-        # Get the IPs of all running instances
-        hosts = self.hosts(flat=True)
-
-        # Path to Ansible hosts file
-        ansible_hosts_path = '../ansible/hosts'
-
-        # Generate hosts file content
-        hosts_content = "[BFT]\n"
-        for i, ip in enumerate(hosts):
-            hosts_content += f"node{i} ansible_host={ip} ansible_user=root\n"
-
-        # Write to file
-        with open(ansible_hosts_path, 'w') as f:
-            f.write(hosts_content)
-
-        Print.info(f'Successfully generated Ansible hosts file with {len(hosts)} nodes at {ansible_hosts_path}')
 
     def terminate_instances(self):
         
