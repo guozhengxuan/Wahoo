@@ -9,39 +9,6 @@ from alibaba.instance import InstanceManager
 from alibaba.remote import Bench
 
 @task
-def local(ctx):
-    ''' Run benchmarks on localhost '''
-    bench_params = {
-        'nodes': 7,
-        'duration': 20,
-        'rate': 3_000,                  # tx send rate
-        'batch_size': 800,              # the max number of tx that can be hold 
-        'log_level': 0b1111,            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
-        'protocol_name': "Wahoo++"
-    }
-    node_params = {
-        "pool": {
-            # "rate": 1_000,              # ignore: tx send rate 
-            "tx_size": 250,               # tx size
-            # "batch_size": 200,          # ignore: the max number of tx that can be hold 
-            "max_queue_size": 10_000 
-	    },
-        "consensus": {
-            "sync_timeout": 500,        # node sync time
-            "network_delay": 50,        # network delay
-            "min_block_delay": 0,       # send block delay
-            "ddos": False,              # DDOS attack
-            "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000        # request block period
-        }
-    }
-    try:
-        ret = LocalBench(bench_params, node_params).run(debug=True).result()
-        print(ret)
-    except BenchError as e:
-        Print.error(e)
-
-@task
 def create(ctx, nodes=2):
     ''' Create a testbed'''
     try:
@@ -105,40 +72,6 @@ def info(ctx):
         Print.error(e)
 
 @task
-def remote(ctx):
-    ''' Run benchmarks on AWS '''
-    bench_params = {
-        'nodes': [4],
-        'node_instance': 1,                                             # the number of running instance for a node  (max = 4)
-        'round': 30,
-        'rate': 8_000,                                                  # tx send rate
-        'batch_size': [1000],                              # the max number of tx that can be hold 
-        'log_level': 0b1111,                                            # 0x1 infolevel 0x2 debuglevel 0x4 warnlevel 0x8 errorlevel
-        'protocol_name': "Wahoo++",
-        'runs': 1
-    }
-    node_params = {
-        "pool": {
-            # "rate": 1_000,              # ignore: tx send rate 
-            "tx_size": 250,               # tx size
-            # "batch_size": 200,          # ignore: the max number of tx that can be hold 
-            "max_queue_size": 100_000 
-	    },
-        "consensus": {
-            "sync_timeout": 1_000,      # node sync time
-            "network_delay": 1_000,     # network delay
-            "min_block_delay": 0,       # send block delay
-            "ddos": False,              # DDOS attack
-            "faults": 0,                # the number of byzantine node
-            "retry_delay": 5_000        # request block period
-        }
-    }
-    try:
-        Bench(ctx).run(bench_params, node_params, debug=False)
-    except BenchError as e:
-        Print.error(e)
-
-@task
 def kill(ctx):
     ''' Stop any HotStuff execution on all machines '''
     try:
@@ -170,7 +103,7 @@ def logs(ctx):
 # ========== Wahoo/Tusk/GradedDAG Benchmark Tasks ==========
 
 @task
-def remote_w(ctx, protocol='wahoo'):
+def remote(ctx, protocol='tusk'):
     ''' Run Wahoo/Tusk/GradedDAG benchmarks on Aliyun
 
     Args:
@@ -180,11 +113,11 @@ def remote_w(ctx, protocol='wahoo'):
         fab remote-w
     '''
     bench_params = {
-        'nodes': [4],
+        'nodes': [7],
         'node_instance': 1,
         'round': 15,
         'rate': 8_000,
-        'batch_size': [100],
+        'batch_size': [200, 500, 750, 1500, 3000, 5000],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1
@@ -200,7 +133,7 @@ def remote_w(ctx, protocol='wahoo'):
             "network_delay": 1_000,
             "min_block_delay": 0,
             "ddos": False,
-            "faults": 0,
+            "faults": 2,
             "retry_delay": 5_000
         }
     }
