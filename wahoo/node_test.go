@@ -16,16 +16,22 @@ var clusterAddr = map[string]string{
 	"node1": "127.0.0.1",
 	"node2": "127.0.0.1",
 	"node3": "127.0.0.1",
+	"node4": "127.0.0.1",
+	"node5": "127.0.0.1",
+	"node6": "127.0.0.1",
 }
 var clusterPort = map[string]int{
 	"node0": 8000,
 	"node1": 8010,
 	"node2": 8020,
 	"node3": 8030,
+	"node4": 8040,
+	"node5": 8050,
+	"node6": 8060,
 }
 
 func setupNodes(logLevel int, batchSize int, round int) []*Node {
-	names := make([]string, 4)
+	names := make([]string, 7)
 	clusterAddrWithPorts := make(map[string]uint8)
 	for name, addr := range clusterAddr {
 		rn := []rune(name)
@@ -35,31 +41,31 @@ func setupNodes(logLevel int, batchSize int, round int) []*Node {
 	}
 
 	// create the ED25519 keys
-	privKeys := make([]ed25519.PrivateKey, 4)
-	pubKeys := make([]ed25519.PublicKey, 4)
-	for i := 0; i < 4; i++ {
+	privKeys := make([]ed25519.PrivateKey, 7)
+	pubKeys := make([]ed25519.PublicKey, 7)
+	for i := 0; i < 7; i++ {
 		privKeys[i], pubKeys[i] = sign.GenED25519Keys()
 	}
 	pubKeyMap := make(map[string]ed25519.PublicKey)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 7; i++ {
 		pubKeyMap[names[i]] = pubKeys[i]
 	}
 
 	// create the threshold keys
-	shares, pubPoly := sign.GenTSKeys(3, 4)
+	shares, pubPoly := sign.GenTSKeys(3, 7)
 
 	// create configs and nodes
-	confs := make([]*config.Config, 4)
-	nodes := make([]*Node, 4)
-	for i := 0; i < 4; i++ {
-		confs[i] = config.New(names[i], 10, clusterAddr, clusterPort, nil, clusterAddrWithPorts, nil, pubKeyMap, privKeys[i], pubPoly, shares[i], logLevel, i==3, batchSize, round)
+	confs := make([]*config.Config, 7)
+	nodes := make([]*Node, 7)
+	for i := 0; i < 7; i++ {
+		confs[i] = config.New(names[i], 10, clusterAddr, clusterPort, nil, clusterAddrWithPorts, nil, pubKeyMap, privKeys[i], pubPoly, shares[i], logLevel, false, batchSize, round)
 		nodes[i] = NewNode(confs[i])
 		if err := nodes[i].StartP2PListen(); err != nil {
 			panic(err)
 		}
 		nodes[i].InitPB(confs[i])
 	}
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 7; i++ {
 		go nodes[i].EstablishP2PConns()
 	}
 	time.Sleep(time.Second)
@@ -73,9 +79,9 @@ func clean(nodes []*Node) {
 	}
 }
 
-func TestWith4Nodes(t *testing.T) {
+func TestWith7Nodes(t *testing.T) {
 	nodes := setupNodes(3, 50, 500)
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 7; i++ {
 		fmt.Printf("node%d starts the Wahoo!\n", i)
 		go nodes[i].RunLoop()
 		go nodes[i].HandleMsgLoop()
@@ -83,7 +89,7 @@ func TestWith4Nodes(t *testing.T) {
 	}
 
 	// wait all nodes finish
-	time.Sleep(15 * time.Second)
+	time.Sleep(25 * time.Second)
 
 	clean(nodes)
 }

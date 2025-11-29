@@ -516,7 +516,7 @@ class Bench:
         monitor_log = PathMaker.remote_log_file(0, ts)
 
         Print.info(f'Monitoring {protocol} benchmark completion (checking every 5 seconds)...')
-        max_wait_time = 240  # 4min max timeout
+        max_wait_time = 20  # 20s max timeout
         check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
 

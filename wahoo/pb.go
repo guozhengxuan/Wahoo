@@ -24,16 +24,16 @@ type PB struct {
 	pendingBlocks        map[uint64]map[string]*Block // map from round to sender to block
 	pendingBlock2s       map[uint64]map[string]*Block
 	pendingVote          map[uint64]map[string]int // map from round to block_sender to vote count
-	//pendingReady         map[uint64]map[string]map[string][]byte // map from round to block_sender to ready_sender to parSig
+	pendingReady         map[uint64]map[string]map[string][]byte // map from round to block_sender to ready_sender to parSig
 	privateKey   ed25519.PrivateKey
 	tsPublicKey  *share.PubPoly
 	tsPrivateKey *share.PriShare
 	lock         sync.RWMutex
 	blockCh      chan Block
-	//doneCh               chan Done
+	doneCh               chan Done
 	blockOutput map[uint64]map[string]bool // mark whether a block has been output before
-	//doneOutput           map[uint64]map[string]bool // mark whether a done has been output before
-	//blockSend            map[uint64]bool            // mark whether have sent block in a round
+	doneOutput           map[uint64]map[string]bool // mark whether a done has been output before
+	blockSend            map[uint64]bool            // mark whether have sent block in a round
 	block2Send map[uint64]bool
 }
 
@@ -41,9 +41,9 @@ func (c *PB) ReturnBlockChan() chan Block {
 	return c.blockCh
 }
 
-// func (c *PB) ReturnDoneChan() chan Done {
-// 	return c.doneCh
-// }
+func (c *PB) ReturnDoneChan() chan Done {
+	return c.doneCh
+}
 
 func NewPBer(name string, clusterAddr map[string]string, clusterPort map[string]int, clusterAddrWithPorts map[string]uint8, connPool *conn.NetworkTransport, q, n int, privateKey ed25519.PrivateKey, tsPublicKey *share.PubPoly, tsPrivateKey *share.PriShare) *PB {
 	return &PB{
@@ -57,15 +57,15 @@ func NewPBer(name string, clusterAddr map[string]string, clusterPort map[string]
 		pendingBlocks:        make(map[uint64]map[string]*Block),
 		pendingBlock2s:       make(map[uint64]map[string]*Block),
 		pendingVote:          make(map[uint64]map[string]int),
-		//pendingReady:         make(map[uint64]map[string]map[string][]byte),
+		pendingReady:         make(map[uint64]map[string]map[string][]byte),
 		privateKey: privateKey,
 		blockCh:    make(chan Block),
-		//doneCh:               make(chan Done),
+		doneCh:               make(chan Done),
 		blockOutput: make(map[uint64]map[string]bool),
-		//doneOutput:           make(map[uint64]map[string]bool),
+		doneOutput:           make(map[uint64]map[string]bool),
 		tsPublicKey:  tsPublicKey,
 		tsPrivateKey: tsPrivateKey,
-		//blockSend:            make(map[uint64]bool),
+		blockSend:            make(map[uint64]bool),
 		block2Send: make(map[uint64]bool),
 	}
 }
@@ -105,25 +105,26 @@ func (c *PB) broadcastBlock2(block *Block) {
 	c.lock.Unlock()
 }
 
-// func (c *PB) sendReady(round uint64, hash []byte, blockSender string) {
-// 	partialSig := sign.SignTSPartial(c.tsPrivateKey, hash)
-// 	ready := Ready{
-// 		ReadySender: c.name,
-// 		BlockSender: blockSender,
-// 		Round:       round,
-// 		Hash:        hash,
-// 		PartialSig:  partialSig,
-// 	}
-// 	err := c.send(ReadyTag, ready, blockSender)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// }
+func (c *PB) sendReady(round uint64, hash []byte, blockSender string) {
+	partialSig := sign.SignTSPartial(c.tsPrivateKey, hash)
+	ready := Ready{
+		ReadySender: c.name,
+		BlockSender: blockSender,
+		Round:       round,
+		Hash:        hash,
+		PartialSig:  partialSig,
+	}
+	err := c.send(ReadyTag, ready, blockSender)
+	if err != nil {
+		panic(err)
+	}
+}
 
 func (c *PB) HandleBlockMsg(block *Block) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-	if block.Tag == 1 {
+	switch block.Tag {
+	case 1:
 		c.storeBlockMsg(block)
 		c.sendVote(block.Sender, block.Round)
 		if _, ok := c.pendingBlock2s[block.Round]; !ok {
@@ -132,8 +133,14 @@ func (c *PB) HandleBlockMsg(block *Block) {
 		if _, ok := c.pendingBlock2s[block.Round][block.Sender]; ok {
 			go c.tryToOutputBlocks(block.Round, block.Sender)
 		}
-	} else if block.Tag == 2 {
+	case 2:
 		c.storeBlock2Msg(block)
+
+		if block.Round%2 == 1 {
+			hash, _ := common.GetHash(block)
+			c.sendReady(block.Round, hash, block.Sender)
+		}
+		
 		go c.tryToOutputBlocks(block.Round, block.Sender)
 	}
 }
@@ -145,12 +152,12 @@ func (c *PB) HandleVoteMsg(vote *Vote) {
 	go c.checkIfQuorumVote(vote.Round, vote.BlockSender)
 }
 
-// func (c *PB) handleReadyMsg(ready *Ready) {
-// 	c.lock.Lock()
-// 	defer c.lock.Unlock()
-// 	c.storeReadyMsg(ready)
-// 	go c.checkIfQuorumReady(ready)
-// }
+func (c *PB) handleReadyMsg(ready *Ready) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.storeReadyMsg(ready)
+	go c.checkIfQuorumReady(ready)
+}
 
 func (c *PB) storeBlockMsg(block *Block) {
 	if _, ok := c.pendingBlocks[block.Round]; !ok {
@@ -173,15 +180,15 @@ func (c *PB) storeVoteMsg(vote *Vote) {
 	c.pendingVote[vote.Round][vote.BlockSender]++
 }
 
-// func (c *PB) storeReadyMsg(ready *Ready) {
-// 	if _, ok := c.pendingReady[ready.Round]; !ok {
-// 		c.pendingReady[ready.Round] = make(map[string]map[string][]byte)
-// 	}
-// 	if _, ok := c.pendingReady[ready.Round][ready.BlockSender]; !ok {
-// 		c.pendingReady[ready.Round][ready.BlockSender] = make(map[string][]byte)
-// 	}
-// 	c.pendingReady[ready.Round][ready.BlockSender][ready.ReadySender] = ready.PartialSig
-// }
+func (c *PB) storeReadyMsg(ready *Ready) {
+	if _, ok := c.pendingReady[ready.Round]; !ok {
+		c.pendingReady[ready.Round] = make(map[string]map[string][]byte)
+	}
+	if _, ok := c.pendingReady[ready.Round][ready.BlockSender]; !ok {
+		c.pendingReady[ready.Round][ready.BlockSender] = make(map[string][]byte)
+	}
+	c.pendingReady[ready.Round][ready.BlockSender][ready.ReadySender] = ready.PartialSig
+}
 
 func (c *PB) checkIfQuorumVote(round uint64, blockSender string) {
 	c.lock.Lock()
@@ -200,33 +207,33 @@ func (c *PB) checkIfQuorumVote(round uint64, blockSender string) {
 	}
 }
 
-// func (c *PB) checkIfQuorumReady(ready *Ready) {
-// 	c.lock.Lock()
-// 	readies := c.pendingReady[ready.Round][ready.BlockSender]
-// 	if _, ok := c.doneOutput[ready.Round]; !ok {
-// 		c.doneOutput[ready.Round] = make(map[string]bool)
-// 	}
-// 	if len(readies) >= c.quorumNum && !c.doneOutput[ready.Round][ready.BlockSender] {
-// 		c.doneOutput[ready.Round][ready.BlockSender] = true
-// 		var partialSig [][]byte
-// 		for _, parSig := range readies {
-// 			partialSig = append(partialSig, parSig)
-// 		}
-// 		c.lock.Unlock()
-// 		// done := sign.AssembleIntactTSPartial(partialSig, c.tsPublicKey, ready.Hash, c.quorumNum, c.nodeNum)
-// 		doneMsg := &Done{
-// 			DoneSender:  c.name,
-// 			BlockSender: ready.BlockSender,
-// 			Done:        partialSig,
-// 			Hash:        ready.Hash,
-// 			Round:       ready.Round,
-// 		}
-// 		c.doneCh <- *doneMsg
-// 	} else {
-// 		c.lock.Unlock()
-// 	}
+func (c *PB) checkIfQuorumReady(ready *Ready) {
+	c.lock.Lock()
+	readies := c.pendingReady[ready.Round][ready.BlockSender]
+	if _, ok := c.doneOutput[ready.Round]; !ok {
+		c.doneOutput[ready.Round] = make(map[string]bool)
+	}
+	if len(readies) >= c.quorumNum && !c.doneOutput[ready.Round][ready.BlockSender] {
+		c.doneOutput[ready.Round][ready.BlockSender] = true
+		var partialSig [][]byte
+		for _, parSig := range readies {
+			partialSig = append(partialSig, parSig)
+		}
+		c.lock.Unlock()
+		// done := sign.AssembleIntactTSPartial(partialSig, c.tsPublicKey, ready.Hash, c.quorumNum, c.nodeNum)
+		doneMsg := &Done{
+			DoneSender:  c.name,
+			BlockSender: ready.BlockSender,
+			Done:        partialSig,
+			Hash:        ready.Hash,
+			Round:       ready.Round,
+		}
+		c.doneCh <- *doneMsg
+	} else {
+		c.lock.Unlock()
+	}
 
-// }
+}
 
 func (c *PB) tryToOutputBlocks(round uint64, sender string) {
 	c.lock.Lock()

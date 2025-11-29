@@ -17,20 +17,20 @@ func (n *Node) broadcastBlock(round uint64) {
 	n.lock.Unlock()
 }
 
-func (n *Node) sendReady(round uint64, hash []byte, blockSender string) {
-	partialSig := sign.SignTSPartial(n.tsPrivateKey, hash)
-	ready := Ready{
-		ReadySender: n.name,
-		BlockSender: blockSender,
-		Round:       round,
-		Hash:        hash,
-		PartialSig:  partialSig,
-	}
-	err := n.send(ReadyTag, ready, blockSender)
-	if err != nil {
-		panic(err)
-	}
-}
+// func (n *Node) sendReady(round uint64, hash []byte, blockSender string) {
+// 	partialSig := sign.SignTSPartial(n.tsPrivateKey, hash)
+// 	ready := Ready{
+// 		ReadySender: n.name,
+// 		BlockSender: blockSender,
+// 		Round:       round,
+// 		Hash:        hash,
+// 		PartialSig:  partialSig,
+// 	}
+// 	err := n.send(ReadyTag, ready, blockSender)
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// }
 
 func (n *Node) broadcastElect(round uint64) {
 	data, err := common.Encode(round)

@@ -51,7 +51,7 @@ func setupNodes (logLevel int, batchSize int, round int) []*Node{
 	confs := make([]*config.Config, 4)
 	nodes := make([]*Node, 4)
 	for i := 0; i < 4; i++ {
-		confs[i] = config.New(names[i], 10, clusterAddr, clusterPort, nil, clusterAddrWithPorts, nil,pubKeyMap, privKeys[i], pubPoly, shares[i], logLevel, false, batchSize, round)
+		confs[i] = config.New(names[i], 10, clusterAddr, clusterPort, nil, clusterAddrWithPorts, nil,pubKeyMap, privKeys[i], pubPoly, shares[i], logLevel, i==3, batchSize, round)
 		nodes[i] = NewNode(confs[i])
 		if err := nodes[i].StartP2PListen(); err != nil {
 			panic(err)

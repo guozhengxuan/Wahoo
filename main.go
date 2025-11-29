@@ -67,6 +67,7 @@ func startWahoo() {
 	go node.RunLoop()
 	go node.HandleMsgLoop()
 	node.PBOutputBlockLoop()
+	node.DoneOutputLoop()
 }
 
 func startTusk() {

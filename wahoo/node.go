@@ -281,30 +281,30 @@ func (n *Node) tryToElectLeader(round uint64) {
 }
 
 //we need collect 3f+1 ready msg
-func (n *Node) checkIfEnoughReady(ready *Ready) {
-	n.lock.Lock()
-	readies := n.ready[ready.Round][ready.BlockSender]
-	if len(readies) == n.nodeNum && !n.doneSend[ready.Round] {
-		n.doneSend[ready.Round] = true
-		n.lock.Unlock()
-		// var partialSig [][]byte
-		// for _, parSig := range readies {
-		// 	partialSig = append(partialSig, parSig)
-		// }
-		// done := sign.AssembleIntactTSPartial(partialSig, c.tsPublicKey, ready.Hash, c.quorumNum, c.nodeNum)
-		doneMsg := &Done{
-			DoneSender:  n.name,
-			BlockSender: ready.BlockSender,
-			Done:        nil, //this is not correct
-			Hash:        nil,
-			Round:       ready.Round,
-		}
-		go n.handleDoneMsg(doneMsg)
-		n.broadcastDone(*doneMsg)
-	} else {
-		n.lock.Unlock()
-	}
-}
+// func (n *Node) checkIfEnoughReady(ready *Ready) {
+// 	n.lock.Lock()
+// 	readies := n.ready[ready.Round][ready.BlockSender]
+// 	if len(readies) == n.nodeNum && !n.doneSend[ready.Round] {
+// 		n.doneSend[ready.Round] = true
+// 		n.lock.Unlock()
+// 		// var partialSig [][]byte
+// 		// for _, parSig := range readies {
+// 		// 	partialSig = append(partialSig, parSig)
+// 		// }
+// 		// done := sign.AssembleIntactTSPartial(partialSig, c.tsPublicKey, ready.Hash, c.quorumNum, c.nodeNum)
+// 		doneMsg := &Done{
+// 			DoneSender:  n.name,
+// 			BlockSender: ready.BlockSender,
+// 			Done:        nil, //this is not correct
+// 			Hash:        nil,
+// 			Round:       ready.Round,
+// 		}
+// 		go n.handleDoneMsg(doneMsg)
+// 		n.broadcastDone(*doneMsg)
+// 	} else {
+// 		n.lock.Unlock()
+// 	}
+// }
 
 func (n *Node) tryToNextRound(round uint64) {
 	n.lock.Lock()

@@ -1,9 +1,5 @@
 package wahoo
 
-import (
-	"github.com/gitzhang10/BFT/common"
-)
-
 func (n *Node) HandleMsgLoop() {
 	msgCh := n.trans.MsgChan()
 	for {
@@ -19,11 +15,7 @@ func (n *Node) HandleMsgLoop() {
 						"sender", msgAsserted.Sender)
 					continue
 				}
-				if msgAsserted.Round%2 == 0 {
-					go n.pb.HandleBlockMsg(&msgAsserted)
-				} else {
-					go n.handleFastBlockMsg(&msgAsserted)
-				}
+				go n.pb.HandleBlockMsg(&msgAsserted)
 			case Elect:
 				if !n.verifySigED25519(msgAsserted.Sender, msgWithSig.Msg, msgWithSig.Sig) {
 					n.logger.Error("fail to verify the echo's signature", "round", msgAsserted.Round,
@@ -37,7 +29,7 @@ func (n *Node) HandleMsgLoop() {
 						"sender", msgAsserted.ReadySender, "blockSender", msgAsserted.BlockSender)
 					continue
 				}
-				go n.handleReadyMsg(&msgAsserted)
+				go n.pb.handleReadyMsg(&msgAsserted)
 			case Done:
 				if !n.verifySigED25519(msgAsserted.DoneSender, msgWithSig.Msg, msgWithSig.Sig) {
 					n.logger.Error("fail to verify the done's signature", "round", msgAsserted.Round,
@@ -65,25 +57,25 @@ func (n *Node) handlePBBlock(block *Block) {
 	go n.tryToUpdateDAG(block)
 }
 
-func (n *Node) handleFastBlockMsg(block *Block) {
-	hash, _ := common.GetHash(block)
-	// this is a simple way, need modify...
-	go n.tryToUpdateDAG(block)
-	n.lock.Lock()
-	if !n.blockSend[block.Round+1] {
-		n.lock.Unlock()
-		n.sendReady(block.Round, hash, block.Sender)
-	} else {
-		n.lock.Unlock()
-	}
-}
+// func (n *Node) handleFastBlockMsg(block *Block) {
+// 	hash, _ := common.GetHash(block)
+// 	// this is a simple way, need modify...
+// 	go n.tryToUpdateDAG(block)
+// 	n.lock.Lock()
+// 	if !n.blockSend[block.Round+1] {
+// 		n.lock.Unlock()
+// 		n.sendReady(block.Round, hash, block.Sender)
+// 	} else {
+// 		n.lock.Unlock()
+// 	}
+// }
 
-func (n *Node) handleReadyMsg(ready *Ready) {
-	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.storeReady(ready)
-	go n.checkIfEnoughReady(ready)
-}
+// func (n *Node) handleReadyMsg(ready *Ready) {
+// 	n.lock.Lock()
+// 	defer n.lock.Unlock()
+// 	n.storeReady(ready)
+// 	go n.checkIfEnoughReady(ready)
+// }
 
 func (n *Node) handleElectMsg(elect *Elect) {
 	n.lock.Lock()
@@ -114,14 +106,14 @@ func (n *Node) PBOutputBlockLoop() {
 	}
 }
 
-// func (n *Node) DoneOutputLoop() {
-// 	dataCh := n.pb.ReturnDoneChan()
-// 	for {
-// 		select {
-// 		case done := <-dataCh:
-// 			go n.handleDoneMsg(&done)
-// 			// sender broadcast done to all nodes
-// 			go n.broadcastDone(done)
-// 		}
-// 	}
-// }
+func (n *Node) DoneOutputLoop() {
+	dataCh := n.pb.ReturnDoneChan()
+	for {
+		select {
+		case done := <-dataCh:
+			go n.handleDoneMsg(&done)
+			// sender broadcast done to all nodes
+			go n.broadcastDone(done)
+		}
+	}
+}

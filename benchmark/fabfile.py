@@ -180,11 +180,11 @@ def remote_w(ctx, protocol='wahoo'):
         fab remote-w
     '''
     bench_params = {
-        'nodes': [7],
+        'nodes': [4],
         'node_instance': 1,
-        'round': 12,
+        'round': 15,
         'rate': 8_000,
-        'batch_size': [200],
+        'batch_size': [100],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1
@@ -200,7 +200,7 @@ def remote_w(ctx, protocol='wahoo'):
             "network_delay": 1_000,
             "min_block_delay": 0,
             "ddos": False,
-            "faults": 2,
+            "faults": 0,
             "retry_delay": 5_000
         }
     }
