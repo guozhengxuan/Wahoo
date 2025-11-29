@@ -184,7 +184,7 @@ def remote_w(ctx, protocol='wahoo'):
         'node_instance': 1,
         'round': 12,
         'rate': 8_000,
-        'batch_size': [8000, 9000],
+        'batch_size': [200],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1
@@ -192,7 +192,7 @@ def remote_w(ctx, protocol='wahoo'):
     node_params = {
         "pool": {
             "tx_size": 250,
-            "max_pool": 31,
+            "max_pool": 64,
             "max_queue_size": 100_000
         },
         "consensus": {
@@ -200,7 +200,7 @@ def remote_w(ctx, protocol='wahoo'):
             "network_delay": 1_000,
             "min_block_delay": 0,
             "ddos": False,
-            "faults": 0,
+            "faults": 2,
             "retry_delay": 5_000
         }
     }

@@ -13,6 +13,7 @@ from alibabacloud_tea_util.client import Client as UtilClient
 
 from collections import defaultdict, OrderedDict
 from time import sleep
+from tqdm import tqdm
 
 from benchmark.utils import Print, BenchError, progress_bar
 from alibaba.settings import Settings, SettingsError
@@ -86,14 +87,25 @@ class InstanceManager:
 
         return ids, ips
 
-    def _wait(self, state):
+    def _wait(self, state, instances):
         # Possible states are: 'pending', 'running', 'shutting-down',
         # 'terminated', 'stopping', and 'stopped'.
-        while True:
-            sleep(1)
-            ids, _ = self._get(state)
-            if sum(len(x) for x in ids.values()) == 0:
-                break
+        Print.info(f'Waiting for the number of instances with state: {state} reaching {instances}')
+
+        with tqdm(total=instances, desc=f"Waiting for {state}", unit=" instance") as pbar:
+            current = 0
+            while True:
+                sleep(1)
+                ids, _ = self._get(state)
+                total_ready = sum(len(x) for x in ids.values())
+
+                # Update progress bar
+                if total_ready > current:
+                    pbar.update(total_ready - current)
+                    current = total_ready
+
+                if total_ready >= instances:
+                    break
 
     def _create_security_group(self, client, region):
         try:
@@ -238,7 +250,7 @@ class InstanceManager:
 
             # Wait for the instances to boot.
             Print.info('Waiting for all instances to boot...')
-            self._wait(['Pending'])
+            self._wait(['Running'], size)
             Print.heading(f'Successfully created {size} new instances')
 
         except Exception as error:
@@ -268,7 +280,7 @@ class InstanceManager:
 
                 # Wait for all instances to properly shut down.
                 Print.info('Waiting for all instances to shut down...')
-                self._wait(['Pending', 'Running', 'Stopping', 'Stopped'])
+                self._wait(['Pending', 'Running', 'Stopping', 'Stopped'], 0)
             Print.heading(f'All instances are shut down')
             # Print.heading(f'Testbed of {size} instances destroyed')
         except Exception as e:
