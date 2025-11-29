@@ -12,10 +12,10 @@ import (
 )
 
 var clusterAddr = map[string]string{
-	"node0": "124.0.0.1",
-	"node1": "124.0.0.1",
-	"node2": "124.0.0.1",
-	"node3": "124.0.0.1",
+	"node0": "127.0.0.1",
+	"node1": "127.0.0.1",
+	"node2": "127.0.0.1",
+	"node3": "127.0.0.1",
 }
 var clusterPort = map[string]int{
 	"node0": 8000,
@@ -74,7 +74,7 @@ func clean(nodes []*Node) {
 }
 
 func TestWith4Nodes(t *testing.T) {
-	nodes := setupNodes(3, 50, 400)
+	nodes := setupNodes(3, 50, 500)
 	for i := 0; i < 4; i++ {
 		fmt.Printf("node%d starts the Wahoo!\n", i)
 		go nodes[i].RunLoop()
