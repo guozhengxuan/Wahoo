@@ -66,7 +66,7 @@ func startWahoo() {
 	fmt.Println("node starts the Wahoo!")
 	go node.RunLoop()
 	go node.HandleMsgLoop()
-	node.PBOutputBlockLoop()
+	go node.PBOutputBlockLoop()
 	node.DoneOutputLoop()
 }
 
