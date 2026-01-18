@@ -14,6 +14,7 @@ from alibabacloud_tea_util.client import Client as UtilClient
 from collections import defaultdict, OrderedDict
 from time import sleep
 from tqdm import tqdm
+import socket
 
 from benchmark.utils import Print, BenchError, progress_bar
 from alibaba.settings import Settings, SettingsError
@@ -67,6 +68,7 @@ class InstanceManager:
                     instance_name = self.INSTANCE_NAME,
                     internet_charge_type = 'PayByTraffic',
                     instance_charge_type = 'PostPaid',
+                    page_size=100
                 )
 
                 resp = client.describe_instances_with_options(describe_instances_request, self.aliyun_runtime).to_map()
@@ -106,6 +108,43 @@ class InstanceManager:
 
                 if total_ready >= instances:
                     break
+
+    def _check_ssh_port(self, host, port=22, timeout=2):
+        """Check if SSH port is open on a host."""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
+
+    def _wait_for_ssh(self, hosts, max_wait_time=300):
+        """Wait for SSH port 22 to be ready on all hosts."""
+        import time
+        Print.info(f'Waiting for SSH to be ready on {len(hosts)} instances...')
+        start_time = time.time()
+
+        while time.time() - start_time < max_wait_time:
+            ready_count = 0
+            still_waiting = []
+
+            for host in hosts:
+                if self._check_ssh_port(host):
+                    ready_count += 1
+                else:
+                    still_waiting.append(host)
+
+            if ready_count == len(hosts):
+                Print.info(f'✓ All {len(hosts)} instances are ready (SSH port 22 accessible)')
+                return True
+
+            Print.info(f'  {ready_count}/{len(hosts)} instances ready, waiting for {len(still_waiting)} more...')
+            sleep(5)
+
+        Print.warn(f'Timeout: Only {ready_count}/{len(hosts)} instances became ready after {max_wait_time}s')
+        return False
 
     def _create_security_group(self, client, region):
         try:
@@ -251,7 +290,21 @@ class InstanceManager:
             # Wait for the instances to boot.
             Print.info('Waiting for all instances to boot...')
             self._wait(['Running'], size)
-            Print.heading(f'Successfully created {size} new instances')
+
+            # Get all running instances with IPs
+            _, ips = self._get(['Running'])
+            all_hosts = [ip for region_ips in ips.values() for ip in region_ips]
+
+            if len(all_hosts) < size:
+                Print.warn(f'Warning: Only {len(all_hosts)}/{size} instances have public IPs assigned')
+
+            # Wait for SSH to be ready on all instances
+            if all_hosts:
+                ssh_ready = self._wait_for_ssh(all_hosts, max_wait_time=300)
+                if not ssh_ready:
+                    Print.warn('Some instances may not be ready for SSH connections')
+
+            Print.heading(f'Successfully created {size} new instances ({len(all_hosts)} with SSH ready)')
 
         except Exception as error:
             # Handle both Alibaba Cloud API errors and standard Python exceptions

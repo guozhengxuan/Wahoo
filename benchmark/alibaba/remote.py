@@ -20,7 +20,7 @@ from benchmark.logs import LogParser, WahooLogParser, ParseError
 from alibaba.instance import InstanceManager
 
 
-def run_concurrent_tasks(task_fn, iterable, desc, max_workers=10):
+def run_concurrent_tasks(task_fn, iterable, desc, max_workers=64):
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(max_workers, len(iterable))) as executor:
         futures = {executor.submit(task_fn, *args) if isinstance(args, tuple)
                     else executor.submit(task_fn, args): args for args in iterable}
@@ -190,9 +190,8 @@ class Bench:
 
                 return (host, 'OK')
 
-            verification_results = []
-            for host in hosts:
-                verification_results.append(verify_install(host))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(hosts)) as executor:
+                verification_results = list(executor.map(verify_install, hosts))
 
             # Report results
             failed_hosts = [(h, r) for h, r in verification_results if r != 'OK']
@@ -307,7 +306,7 @@ class Bench:
         monitor_hosts = hosts[:3]
 
         Print.info(f'Monitoring {protocol} benchmark completion on {len(monitor_hosts)} hosts (checking every 5 seconds)...')
-        max_wait_time = 40  # 40s max timeout
+        max_wait_time = 80  # 40s max timeout
         check_interval = 5   # Check every 5 seconds
         elapsed_time = 0
 

@@ -9,7 +9,7 @@ from alibaba.instance import InstanceManager
 from alibaba.remote import Bench
 
 @task
-def create(ctx, nodes=2):
+def create(ctx, nodes=4):
     ''' Create a testbed'''
     try:
         InstanceManager.make().create_instances(nodes)
@@ -113,11 +113,11 @@ def remote(ctx, protocol='tusk'):
         fab remote-w
     '''
     bench_params = {
-        'nodes': [7],
+        'nodes': [16],
         'node_instance': 1,
-        'round': 15,
+        'round': 12,
         'rate': 8_000,
-        'batch_size': [200, 500, 750, 1500, 3000, 5000],
+        'batch_size': [4000],
         'log_level': 0b1111,
         'protocol_name': protocol,
         'runs': 1
@@ -133,7 +133,7 @@ def remote(ctx, protocol='tusk'):
             "network_delay": 1_000,
             "min_block_delay": 0,
             "ddos": False,
-            "faults": 2,
+            "faults": 0,
             "retry_delay": 5_000
         }
     }
