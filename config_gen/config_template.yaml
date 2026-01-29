@@ -1,11 +1,20 @@
 IPs:
-  node0: 47.87.128.237
-  node1: 47.87.129.92
-  node2: 8.208.71.89
-  node3: 8.208.71.44
-  node4: 47.84.13.232
-  node5: 47.84.17.165
-  node6: 8.220.210.16
+  node0: 47.87.131.192
+  node1: 47.245.151.54
+  node2: 47.91.87.182
+  node3: 47.87.130.83
+  node4: 8.208.112.77
+  node5: 8.208.93.101
+  node6: 8.208.117.109
+  node7: 8.208.79.217
+  node8: 47.84.124.23
+  node9: 47.84.16.0
+  node10: 47.84.13.250
+  node11: 47.237.182.233
+  node12: 8.213.144.54
+  node13: 8.220.204.101
+  node14: 47.80.9.225
+  node15: 8.220.195.194
 p2p_ports:
   node0: 9000
   node1: 9000
@@ -14,10 +23,19 @@ p2p_ports:
   node4: 9000
   node5: 9000
   node6: 9000
+  node7: 9000
+  node8: 9000
+  node9: 9000
+  node10: 9000
+  node11: 9000
+  node12: 9000
+  node13: 9000
+  node14: 9000
+  node15: 9000
 max_pool: 64
 log_level: 3
-batch_size: 5000
+batch_size: 4000
 tx_size: 250
-round: 15
-faulty_number: 2
+round: 12
+faulty_number: 0
 protocol: tusk
