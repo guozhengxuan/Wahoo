@@ -10,6 +10,10 @@ import (
 func (n *Node) broadcastBlock(round uint64) {
 	previousHash := n.selectPreviousBlocks(round-1)
 	block := n.newBlock(round, previousHash)
+
+	// [EVAL] Log block proposed - for Graph 2 (Cumulative Input)
+	n.logger.Info("[EVAL] BLOCK_PROPOSED", "node", n.name, "round", round, "ref_count", len(previousHash), "timestamp_ns", block.TimeStamp)
+
 	blockAsBytes, err := common.Encode(block)
 	if err != nil {
 		panic(err)

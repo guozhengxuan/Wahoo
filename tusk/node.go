@@ -124,9 +124,18 @@ func (n *Node) RunLoop() {
 			go n.broadcastElect(currentRound)
 		}
 
+		// [EVAL] Log wait start - for Graph 3 (Latency Decomposition)
+		waitStart := time.Now().UnixNano()
+		n.logger.Info("[EVAL] WAIT_FOR_REFS_START", "node", n.name, "round", currentRound, "timestamp_ns", waitStart)
+
 		select {
 		case currentRound = <-n.nextRound:
 		}
+
+		// [EVAL] Log wait end - for Graph 3 (Latency Decomposition)
+		waitEnd := time.Now().UnixNano()
+		waitDuration := waitEnd - waitStart
+		n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, "round", currentRound, "timestamp_ns", waitEnd, "wait_duration_ns", waitDuration)
 	}
 	// wait all blocks are committed
 	time.Sleep(5*time.Second)
@@ -252,7 +261,12 @@ func (n *Node) tryToNextRound(round uint64) {
 	}
 	blocks := n.dag[round]
 	if len(blocks) >= n.quorumNum {
+		oldRound := n.round
 		n.round++
+
+		// [EVAL] Log round advance - for Graph 1 (Wave Efficiency)
+		n.logger.Info("[EVAL] ROUND_ADVANCED", "node", n.name, "old_round", oldRound, "new_round", n.round, "blocks_collected", len(blocks))
+
 		go func() {
 			n.nextRound <- round + 1
 		}()
