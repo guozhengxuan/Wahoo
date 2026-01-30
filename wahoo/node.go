@@ -168,7 +168,7 @@ func (n *Node) RunLoop() {
 }
 
 func (n *Node) InitPB(conf *config.Config) {
-	n.pb = NewPBer(n.name, conf.ClusterAddr, conf.ClusterPort, conf.ClusterAddrWithPorts, n.trans, n.quorumNum, n.nodeNum, n.privateKey, n.tsPublicKey, n.tsPrivateKey)
+	n.pb = NewPBer(n.name, conf.ClusterAddr, conf.ClusterPort, conf.ClusterAddrWithPorts, n.trans, n.quorumNum, n.nodeNum, n.privateKey, n.tsPublicKey, n.tsPrivateKey, n.logger)
 }
 
 // select at least 2f+1 blocks in last round

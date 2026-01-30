@@ -9,6 +9,38 @@ from alibaba.instance import InstanceManager
 from alibaba.remote import Bench
 
 @task
+def local(ctx):
+    ''' Run benchmarks on localhost '''
+    bench_params = {
+        'nodes': 7,
+        'duration': 20,
+        'round': 200,
+        'rate': 3_000,
+        'batch_size': 800,
+        'log_level': 0b1111,
+        'protocol_name': "Wahoo"
+    }
+    node_params = {
+        "pool": {
+            "tx_size": 250,
+            "max_queue_size": 100_000 
+	    },
+        "consensus": {
+            "sync_timeout": 500,
+            "network_delay": 50,
+            "min_block_delay": 0,
+            "ddos": False,
+            "faults": 0,
+            "retry_delay": 5_000
+        }
+    }
+    try:
+        ret = LocalBench(bench_params, node_params).run(debug=True).result()
+        print(ret)
+    except BenchError as e:
+        Print.error(e)
+
+@task
 def create(ctx, nodes=4):
     ''' Create a testbed'''
     try:

@@ -7,6 +7,7 @@ import (
 	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
+	"github.com/hashicorp/go-hclog"
 	"go.dedis.ch/kyber/v3/share"
 )
 
@@ -15,6 +16,7 @@ import (
 
 type CBC struct {
 	name                 string
+	logger               hclog.Logger
 	clusterAddrWithPorts map[string]uint8
 	connPool             *conn.NetworkTransport
 	nodeNum              int
@@ -42,9 +44,10 @@ func (c *CBC) ReturnDoneChan() chan Done {
 }
 
 func NewCBCer(name string, clusterAddrWithPorts map[string]uint8, connPool *conn.NetworkTransport, q, n int,
-	privateKey ed25519.PrivateKey, tsPublicKey *share.PubPoly, tsPrivateKey *share.PriShare) *CBC {
+	privateKey ed25519.PrivateKey, tsPublicKey *share.PubPoly, tsPrivateKey *share.PriShare, logger hclog.Logger) *CBC {
 	return &CBC{
 		name:                 name,
+		logger:               logger,
 		clusterAddrWithPorts: clusterAddrWithPorts,
 		connPool:             connPool,
 		nodeNum:              n,
@@ -68,6 +71,10 @@ func (c *CBC) BroadcastBlock(block *Block) {
 	if err != nil {
 		panic(err)
 	}
+
+	// [EVAL] Log communication step - Propose
+	c.logger.Info("[EVAL] COMM_STEP_PROPOSE", "round", block.Round)
+
 	c.lock.Lock()
 	c.blockSend[block.Round] = true
 	c.lock.Unlock()
@@ -79,6 +86,10 @@ func (c *CBC) BroadcastVote(blockSender string, round uint64) {
 		BlockSender: blockSender,
 		Round:       round,
 	}
+
+	// [EVAL] Log communication step - Echo/Vote
+	c.logger.Info("[EVAL] COMM_STEP_ECHO", "round", round)
+
 	err := c.broadcast(VoteTag, vote)
 	if err != nil {
 		panic(err)
@@ -94,6 +105,10 @@ func (c *CBC) broadcastReady(round uint64, hash []byte, blockSender string) {
 		Hash:        hash,
 		PartialSig:  partialSig,
 	}
+
+	// [EVAL] Log communication step - Ready
+	c.logger.Info("[EVAL] COMM_STEP_QC", "round", round)
+
 	err := c.broadcast(ReadyTag, ready)
 	if err != nil {
 		panic(err)

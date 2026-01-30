@@ -96,6 +96,10 @@ func (rbcer *ReliableBroadcaster) BroadcastVALMsg(priKey ed25519.PrivateKey, dat
 	if !ok {
 		return errors.New("type of 'VAL' is not defined")
 	}
+
+	// [EVAL] Log communication step - Propose (VAL)
+	rbcer.logger.Info("[EVAL] COMM_STEP_PROPOSE", "dataSN", dataSN)
+
 	for addrWithPort, i := range rbcer.clusterAddrWithPorts {
 		netConn, err := connPool.GetConn(addrWithPort)
 		if err != nil {
@@ -139,6 +143,10 @@ func (rbcer *ReliableBroadcaster) HandleRBCValMsg(priKey ed25519.PrivateKey, msg
 	if !ok {
 		return errors.New("type of 'ECHO' is not defined")
 	}
+
+	// [EVAL] Log communication step - Echo
+	rbcer.logger.Info("[EVAL] COMM_STEP_ECHO", "dataSN", msg.DataSN)
+
 	echoMsg := ECHOMsg{
 		Rbcname:      rbcer.rbcName,
 		Sender:       rbcer.name,
@@ -326,6 +334,9 @@ func (rbcer *ReliableBroadcaster) BroadcastReadyMsg(priKey ed25519.PrivateKey, d
 	if !ok {
 		return errors.New("type of 'READY' is not defined")
 	}
+
+	// [EVAL] Log communication step - Ready (QC)
+	rbcer.logger.Info("[EVAL] COMM_STEP_QC", "dataSN", dataSN)
 
 	readyMsg := READYMsg{
 		Rbcname:  rbcer.rbcName,

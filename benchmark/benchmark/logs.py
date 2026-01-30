@@ -12,100 +12,6 @@ class ParseError(Exception):
     pass
 
 
-class WahooLogParser:
-    def __init__(self, nodes, faults, protocol, ddos):
-        assert all(isinstance(x, str) for x in nodes)
-
-        self.protocol = protocol
-        self.ddos = ddos
-        self.faults = faults
-        self.committee_size = len(nodes)
-
-        # Parse the nodes logs sequentially (avoid multiprocessing issues)
-        try:
-            results = [self._parse_nodes(log) for log in nodes]
-        except (ValueError, IndexError) as e:
-            raise ParseError(f'Failed to parse node logs: {e}')
-
-        if results:
-            latencies, throughputs = zip(*results)
-            self.latencies = [lat for lat in latencies if lat is not None]
-            self.throughputs = [tps for tps in throughputs if tps is not None]
-        else:
-            self.latencies = []
-            self.throughputs = []
-
-    def _parse_nodes(self, log):
-        """Parse a single node log file to extract latency and throughput"""
-        # Search for the average latency and throughput line first
-        # Format: "the average: latency=1.1788882691893687 throughput=5048.848847131798"
-        match = search(r'the average: latency=([\d.]+) throughput=([\d.]+)', log)
-
-        if match:
-            latency = float(match.group(1))
-            throughput = float(match.group(2))
-
-            # Check if there was a panic after the results were printed
-            if search(r'panic:', log) is not None or search(r'panic\(', log) is not None:
-                Print.warn('Warning: Found a node with panic error (after results), including results anyway')
-
-            return latency, throughput
-        else:
-            # If no match found, check if it's because of a panic
-            if search(r'panic:', log) is not None or search(r'panic\(', log) is not None:
-                Print.warn('Warning: Found a node with panic error, no results found')
-            return None, None
-
-    def _consensus_latency(self):
-        """Return average of all node latencies in milliseconds"""
-        if not self.latencies:
-            return 0
-        return mean(self.latencies) * 1000  # Convert to ms
-
-    def _consensus_throughput(self):
-        """Return average of all node throughputs"""
-        if not self.throughputs:
-            return 0
-        return mean(self.throughputs)
-
-    def result(self):
-        consensus_latency = self._consensus_latency()
-        consensus_tps = self._consensus_throughput()
-
-        return (
-            '\n'
-            '-----------------------------------------\n'
-            ' SUMMARY:\n'
-            '-----------------------------------------\n'
-            ' + CONFIG:\n'
-            f' Protocol: {self.protocol} \n'
-            f' DDOS attack: {self.ddos} \n'
-            f' Committee size: {self.committee_size} nodes\n'
-            f' Faults: {self.faults} nodes\n'
-            '\n'
-            ' + RESULTS:\n'
-            f' Consensus TPS: {round(consensus_tps):,} tx/s\n'
-            f' Consensus latency: {round(consensus_latency):,} ms\n'
-            '-----------------------------------------\n'
-        )
-
-    def print(self, filename):
-        assert isinstance(filename, str)
-        with open(filename, 'a') as f:
-            f.write(self.result())
-
-    @classmethod
-    def process(cls, directory, faults=0, protocol="", ddos=False):
-        assert isinstance(directory, str)
-
-        nodes = []
-        for filename in sorted(glob(join(directory, 'node-*.log'))):
-            with open(filename, 'r') as f:
-                nodes += [f.read()]
-
-        return cls(nodes, faults=faults, protocol=protocol, ddos=ddos)
-
-
 class LogParser:
     def __init__(self,nodes, faults, protocol, ddos):
 
@@ -122,11 +28,16 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        batchs,proposals, commits,configs = zip(*results)
+        batchs,proposals, commits,configs, wait_times, round_advances, refs_collected = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.batchs = self._merge_results([x.items() for x in batchs])
         self.configs = configs[0]
+        
+        # Flatten lists for new metrics
+        self.wait_times = [item for sublist in wait_times for item in sublist]
+        self.round_advances = [item for sublist in round_advances for item in sublist]
+        self.refs_collected = [item for sublist in refs_collected for item in sublist]
 
     def _merge_results(self, input):
         # Keep the earliest timestamp.
@@ -170,8 +81,53 @@ class LogParser:
                 ),
             }
         }
+        
+        # [EVAL] Parsing
+        # Graph 3: Latency (Wait duration)
+        # Log: [EVAL] WAIT_FOR_REFS_END node=... round=... timestamp_ns=... wait_duration_ns=...
+        # OR simple format: [INFO] ... [EVAL] WAIT_FOR_REFS_END node 0 round 1 ... wait_duration_ns 500
+        # Wahoo/Loom use hclog which might format as key=value or plain text depending on setup.
+        # Based on wahoo/node.go: n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, ...)
+        # This usually outputs: "[INFO]  [EVAL] WAIT_FOR_REFS_END: node=node0 round=1 ..."
+        
+        # We will use regex that captures key-value pairs flexibly
+        
+        wait_times = []
+        # Matches: ... [EVAL] WAIT_FOR_REFS_END ... wait_duration_ns=12345 ...
+        # OR: ... [EVAL] WAIT_FOR_REFS_END ... wait_duration_ns 12345 ...
+        # Let's try to be robust. 
+        # From code: n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, "round", currentRound, "timestamp_ns", waitEnd, "wait_duration_ns", waitDuration)
+        
+        tmp_waits = findall(r'\[EVAL\] WAIT_FOR_REFS_END.*round[=\s](\d+).*wait_duration_ns[=\s](\d+)', log)
+        for r, d in tmp_waits:
+            wait_times.append({'round': int(r), 'duration_ns': int(d)})
 
-        return batchs,proposals, commits,configs
+        round_advances = []
+        # From code: [EVAL] ROUND_ADVANCED node %d old_round %d new_round %d
+        # or wahoo: [EVAL] ROUND_ADVANCED ... old_round=... new_round=... blocks_collected=...
+        # Let's look for "ROUND_ADVANCED" and extract available data.
+        
+        # Try finding Loom style (plain text)
+        tmp_rounds_loom = findall(r'\[EVAL\] ROUND_ADVANCED node (\d+) old_round (\d+) new_round (\d+)', log)
+        for n, old_r, new_r in tmp_rounds_loom:
+            round_advances.append({'node': int(n), 'old_round': int(old_r), 'new_round': int(new_r), 'collected': -1}) # -1 if not available
+
+        # Try finding Wahoo style (key-value)
+        tmp_rounds_wahoo = findall(r'\[EVAL\] ROUND_ADVANCED.*node[=\s](\S+).*old_round[=\s](\d+).*new_round[=\s](\d+).*blocks_collected[=\s](\d+)', log)
+        for n, old_r, new_r, col in tmp_rounds_wahoo:
+             round_advances.append({'node': n, 'old_round': int(old_r), 'new_round': int(new_r), 'collected': int(col)})
+
+        refs_collected = []
+        # Loom: [EVAL] REFS_COLLECTED node %d height %d round %d ref_count %d
+        tmp_refs = findall(r'\[EVAL\] REFS_COLLECTED node (\d+) height (\d+) round (\d+) ref_count (\d+)', log)
+        for n, h, r, c in tmp_refs:
+            refs_collected.append({'node': int(n), 'height': int(h), 'round': int(r), 'count': int(c)})
+            
+        # Loom: [EVAL] BLOCK_PROPOSED node %d height %d round %d ref_count %d
+        # (This can also be used for cumulative input if needed, similar to REFS_COLLECTED)
+        # We can store it in the same list or a new one if needed, but for now refs_collected covers the "refs" graph.
+
+        return batchs,proposals, commits,configs, wait_times, round_advances, refs_collected
 
     def _to_posix(self, string):
         # 解析时间字符串为 datetime 对象
@@ -239,6 +195,23 @@ class LogParser:
             '-----------------------------------------\n'
         )
 
+    def write_json(self, filename):
+        import json
+        data = {
+            'config': self.configs,
+            'summary': {
+                'consensus_tps': self._consensus_throughput()[0],
+                'consensus_latency': self._consensus_latency() * 1000,
+                'end_to_end_tps': self._end_to_end_throughput()[0],
+                'end_to_end_latency': self._end_to_end_latency() * 1000,
+            },
+            'wait_times': self.wait_times,
+            'round_advances': self.round_advances,
+            'refs_collected': self.refs_collected
+        }
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
+
     def print(self, filename):
         assert isinstance(filename, str)
         with open(filename, 'a') as f:
@@ -253,4 +226,10 @@ class LogParser:
             with open(filename, 'r') as f:
                 nodes += [f.read()]
 
-        return cls(nodes, faults=faults, protocol=protocol, ddos=ddos)
+        parser = cls(nodes, faults=faults, protocol=protocol, ddos=ddos)
+        parser.write_json(join(directory, 'metrics.json'))
+        return parser
+
+
+class WahooLogParser:
+    pass

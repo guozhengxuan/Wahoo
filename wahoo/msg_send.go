@@ -14,6 +14,8 @@ func (n *Node) broadcastBlock(round uint64) {
 
 	// [EVAL] Log block proposed - for Graph 2 (Cumulative Input)
 	n.logger.Info("[EVAL] BLOCK_PROPOSED", "node", n.name, "round", round, "ref_count", len(previousHash), "timestamp_ns", block.TimeStamp)
+	// [EVAL] Log communication step - Propose (Round 1 of 3)
+	n.logger.Info("[EVAL] COMM_STEP_PROPOSE", "round", round)
 
 	n.pb.BroadcastBlock(block)
 	n.lock.Lock()

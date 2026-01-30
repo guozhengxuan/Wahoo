@@ -161,7 +161,7 @@ func (n *Node) RunLoop() {
 
 func (n *Node) InitCBC(conf *config.Config) {
 	n.cbc = NewCBCer(n.name, conf.ClusterAddrWithPorts, n.trans, n.quorumNum, n.nodeNum, n.privateKey, n.tsPublicKey,
-		n.tsPrivateKey)
+		n.tsPrivateKey, n.logger)
 }
 
 // select at least 2f+1 blocks in last round

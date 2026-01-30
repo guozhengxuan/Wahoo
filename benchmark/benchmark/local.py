@@ -52,7 +52,7 @@ class LocalBench:
 
             # Pull and compile.
             Print.info(f'Compiling...')
-            cmd = CommandMaker.compile(self.repo_params)
+            cmd = CommandMaker.compile()
             subprocess.run(cmd, shell=True, check=True)
             Print.info('Compilation completed successfully')
 

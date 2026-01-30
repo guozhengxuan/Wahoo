@@ -8,6 +8,7 @@ import (
 	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
 	"github.com/gitzhang10/BFT/sign"
+	"github.com/hashicorp/go-hclog"
 	"go.dedis.ch/kyber/v3/share"
 )
 
@@ -15,6 +16,7 @@ import (
 
 type PB struct {
 	name                 string
+	logger               hclog.Logger
 	clusterAddr          map[string]string // map from name to address
 	clusterPort          map[string]int    // map from name to p2pPort
 	clusterAddrWithPorts map[string]uint8
@@ -45,9 +47,10 @@ func (c *PB) ReturnDoneChan() chan Done {
 	return c.doneCh
 }
 
-func NewPBer(name string, clusterAddr map[string]string, clusterPort map[string]int, clusterAddrWithPorts map[string]uint8, connPool *conn.NetworkTransport, q, n int, privateKey ed25519.PrivateKey, tsPublicKey *share.PubPoly, tsPrivateKey *share.PriShare) *PB {
+func NewPBer(name string, clusterAddr map[string]string, clusterPort map[string]int, clusterAddrWithPorts map[string]uint8, connPool *conn.NetworkTransport, q, n int, privateKey ed25519.PrivateKey, tsPublicKey *share.PubPoly, tsPrivateKey *share.PriShare, logger hclog.Logger) *PB {
 	return &PB{
 		name:                 name,
+		logger:               logger,
 		clusterAddr:          clusterAddr,
 		clusterPort:          clusterPort,
 		clusterAddrWithPorts: clusterAddrWithPorts,
@@ -87,6 +90,9 @@ func (c *PB) sendVote(blockSender string, round uint64) {
 		BlockSender: blockSender,
 		Round:       round,
 	}
+	// [EVAL] Log communication step - Echo (Round 2 of 3)
+	c.logger.Info("[EVAL] COMM_STEP_ECHO", "round", round)
+
 	err := c.send(VoteTag, vote, blockSender)
 	if err != nil {
 		panic(err)
@@ -99,6 +105,10 @@ func (c *PB) broadcastBlock2(block *Block) {
 	if err != nil {
 		panic(err)
 	}
+	
+	// [EVAL] Log communication step - QC/Ready (Round 3 of 3)
+	c.logger.Info("[EVAL] COMM_STEP_QC", "round", block.Round)
+
 	c.lock.Lock()
 	c.block2Send[block.Round] = true
 	c.storeBlock2Msg(block)
@@ -194,6 +204,7 @@ func (c *PB) checkIfQuorumVote(round uint64, blockSender string) {
 	c.lock.Lock()
 	voteCount := c.pendingVote[round][blockSender]
 	if voteCount >= c.quorumNum {
+		// Log to add 2 communication rounds.
 		if !c.block2Send[round] {
 			c.lock.Unlock()
 			block2 := c.generateBlock2(round, blockSender)
