@@ -120,22 +120,18 @@ func (n *Node) RunLoop() {
 			break
 		}
 		go n.broadcastBlock(currentRound)
+
+		// [EVAL] Comm Cost & Block New
+		n.logger.Info("[EVAL] COMM_COST", "val", 3, "round", currentRound, "ts", time.Now().UnixNano())
+		n.logger.Info("[EVAL] BLOCK_NEW", "node", n.name, "round", currentRound, "ts", time.Now().UnixNano())
+
 		if currentRound % 2 == 1 && currentRound > 1 {
 			go n.broadcastElect(currentRound)
 		}
 
-		// [EVAL] Log wait start - for Graph 3 (Latency Decomposition)
-		waitStart := time.Now().UnixNano()
-		n.logger.Info("[EVAL] WAIT_FOR_REFS_START", "node", n.name, "round", currentRound, "timestamp_ns", waitStart)
-
 		select {
 		case currentRound = <-n.nextRound:
 		}
-
-		// [EVAL] Log wait end - for Graph 3 (Latency Decomposition)
-		waitEnd := time.Now().UnixNano()
-		waitDuration := waitEnd - waitStart
-		n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, "round", currentRound, "timestamp_ns", waitEnd, "wait_duration_ns", waitDuration)
 	}
 	// wait all blocks are committed
 	time.Sleep(5*time.Second)

@@ -8,6 +8,7 @@ import (
 	"github.com/gitzhang10/BFT/sign"
 	"github.com/hashicorp/go-hclog"
 	"sync"
+	"time"
 )
 
 type RbcMsgType map[string]uint8
@@ -300,6 +301,10 @@ func (rbcer *ReliableBroadcaster) reconstructData(dataID uint64, proposer string
 		rbcer.reconstructedMM[dataID][proposer] = true
 		rbcer.cacheLock.Unlock()
 	}
+
+	// [EVAL] Broadcast End (Tusk)
+	// Logged when we have confirmed enough shards and are about to reconstruct.
+	rbcer.logger.Info("[EVAL] BROADCAST_END", "dataSN", dataID, "proposer", proposer, "ts", time.Now().UnixNano())
 
 	// prepare the shards
 	shards := make([][]byte, rbcer.n)

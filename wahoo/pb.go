@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
@@ -204,7 +205,11 @@ func (c *PB) checkIfQuorumVote(round uint64, blockSender string) {
 	c.lock.Lock()
 	voteCount := c.pendingVote[round][blockSender]
 	if voteCount >= c.quorumNum {
-		// Log to add 2 communication rounds.
+		// [EVAL] Broadcast End (PBC / Even Round)
+		// Only log once per block when quorum is first reached
+		if !c.block2Send[round] {
+			c.logger.Info("[EVAL] BROADCAST_END", "type", "PBC", "round", round, "blockSender", blockSender, "ts", time.Now().UnixNano())
+		}
 		if !c.block2Send[round] {
 			c.lock.Unlock()
 			block2 := c.generateBlock2(round, blockSender)
@@ -225,6 +230,9 @@ func (c *PB) checkIfQuorumReady(ready *Ready) {
 		c.doneOutput[ready.Round] = make(map[string]bool)
 	}
 	if len(readies) >= c.quorumNum && !c.doneOutput[ready.Round][ready.BlockSender] {
+		// [EVAL] Broadcast End (EPBC / Odd Round)
+		c.logger.Info("[EVAL] BROADCAST_END", "type", "EPBC", "round", ready.Round, "blockSender", ready.BlockSender, "ts", time.Now().UnixNano())
+
 		c.doneOutput[ready.Round][ready.BlockSender] = true
 		var partialSig [][]byte
 		for _, parSig := range readies {

@@ -13,7 +13,7 @@ class ParseError(Exception):
 
 
 class LogParser:
-    def __init__(self,nodes, faults, protocol, ddos):
+    def __init__(self, nodes, faults, protocol, ddos):
 
         assert all(isinstance(x, str) for x in nodes)
 
@@ -28,16 +28,15 @@ class LogParser:
                 results = p.map(self._parse_nodes, nodes)
         except (ValueError, IndexError) as e:
             raise ParseError(f'Failed to parse node logs: {e}')
-        batchs,proposals, commits,configs, wait_times, round_advances, refs_collected = zip(*results)
+
+        batchs, proposals, commits, configs, eval_metrics = zip(*results)
         self.proposals = self._merge_results([x.items() for x in proposals])
         self.commits = self._merge_results([x.items() for x in commits])
         self.batchs = self._merge_results([x.items() for x in batchs])
         self.configs = configs[0]
-        
-        # Flatten lists for new metrics
-        self.wait_times = [item for sublist in wait_times for item in sublist]
-        self.round_advances = [item for sublist in round_advances for item in sublist]
-        self.refs_collected = [item for sublist in refs_collected for item in sublist]
+
+        # Merge eval metrics from all nodes
+        self.eval_metrics = self._merge_eval_metrics(eval_metrics)
 
     def _merge_results(self, input):
         # Keep the earliest timestamp.
@@ -48,16 +47,30 @@ class LogParser:
                     merged[k] = v
         return merged
 
+    def _merge_eval_metrics(self, metrics_list):
+        """Merge evaluation metrics from all nodes."""
+        merged = {
+            'comm_cost': [],
+            'block_new': [],
+            'broadcast_end': [],
+            'round_advanced': [],
+        }
+        for m in metrics_list:
+            merged['comm_cost'].extend(m.get('comm_cost', []))
+            merged['block_new'].extend(m.get('block_new', []))
+            merged['broadcast_end'].extend(m.get('broadcast_end', []))
+            merged['round_advanced'].extend(m.get('round_advanced', []))
+        return merged
+
     def _parse_nodes(self, log):
         if search(r'panic', log) is not None:
             raise ParseError('Client(s) panicked')
-        
-        tmp = findall(r'\[INFO] (.*) pool.* Received Batch (\d+)', log)
-        batchs = { id:self._to_posix(t) for t,id in tmp}
-        
-        tmp = findall(r'\[INFO] (.*) core.* create Block height \d+ node \d+ batch_id (\d+)', log)
-        proposals = { id:self._to_posix(t) for t,id in tmp }
 
+        tmp = findall(r'\[INFO] (.*) pool.* Received Batch (\d+)', log)
+        batchs = {id: self._to_posix(t) for t, id in tmp}
+
+        tmp = findall(r'\[INFO] (.*) core.* create Block height \d+ node \d+ batch_id (\d+)', log)
+        proposals = {id: self._to_posix(t) for t, id in tmp}
 
         tmp = findall(r'\[INFO] (.*) commitor.* commit Block height \d+ node \d+ batch_id (\d+)', log)
         tmp = [(d, self._to_posix(t)) for t, d in tmp]
@@ -76,63 +89,84 @@ class LogParser:
                 'batch_size': int(
                     search(r'Transaction pool batch size set to (\d+)', log).group(1)
                 ),
-                'rate':int(
+                'rate': int(
                     search(r'Transaction pool tx rate set to (\d+)', log).group(1)
                 ),
             }
         }
-        
-        # [EVAL] Parsing
-        # Graph 3: Latency (Wait duration)
-        # Log: [EVAL] WAIT_FOR_REFS_END node=... round=... timestamp_ns=... wait_duration_ns=...
-        # OR simple format: [INFO] ... [EVAL] WAIT_FOR_REFS_END node 0 round 1 ... wait_duration_ns 500
-        # Wahoo/Loom use hclog which might format as key=value or plain text depending on setup.
-        # Based on wahoo/node.go: n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, ...)
-        # This usually outputs: "[INFO]  [EVAL] WAIT_FOR_REFS_END: node=node0 round=1 ..."
-        
-        # We will use regex that captures key-value pairs flexibly
-        
-        wait_times = []
-        # Matches: ... [EVAL] WAIT_FOR_REFS_END ... wait_duration_ns=12345 ...
-        # OR: ... [EVAL] WAIT_FOR_REFS_END ... wait_duration_ns 12345 ...
-        # Let's try to be robust. 
-        # From code: n.logger.Info("[EVAL] WAIT_FOR_REFS_END", "node", n.name, "round", currentRound, "timestamp_ns", waitEnd, "wait_duration_ns", waitDuration)
-        
-        tmp_waits = findall(r'\[EVAL\] WAIT_FOR_REFS_END.*round[=\s](\d+).*wait_duration_ns[=\s](\d+)', log)
-        for r, d in tmp_waits:
-            wait_times.append({'round': int(r), 'duration_ns': int(d)})
 
-        round_advances = []
-        # From code: [EVAL] ROUND_ADVANCED node %d old_round %d new_round %d
-        # or wahoo: [EVAL] ROUND_ADVANCED ... old_round=... new_round=... blocks_collected=...
-        # Let's look for "ROUND_ADVANCED" and extract available data.
-        
-        # Try finding Loom style (plain text)
-        tmp_rounds_loom = findall(r'\[EVAL\] ROUND_ADVANCED node (\d+) old_round (\d+) new_round (\d+)', log)
-        for n, old_r, new_r in tmp_rounds_loom:
-            round_advances.append({'node': int(n), 'old_round': int(old_r), 'new_round': int(new_r), 'collected': -1}) # -1 if not available
+        # =====================================================
+        # [EVAL] Parsing for Graph 1, 2, 3
+        # Wahoo/GradedDAG/Tusk use hclog format: key=value
+        # =====================================================
+        eval_metrics = {
+            'comm_cost': [],
+            'block_new': [],
+            'broadcast_end': [],
+            'round_advanced': [],
+        }
 
-        # Try finding Wahoo style (key-value)
-        tmp_rounds_wahoo = findall(r'\[EVAL\] ROUND_ADVANCED.*node[=\s](\S+).*old_round[=\s](\d+).*new_round[=\s](\d+).*blocks_collected[=\s](\d+)', log)
-        for n, old_r, new_r, col in tmp_rounds_wahoo:
-             round_advances.append({'node': n, 'old_round': int(old_r), 'new_round': int(new_r), 'collected': int(col)})
+        # --- Graph 1: Communication Rounds ---
+        # Wahoo/GradedDAG/Tusk format: [EVAL] COMM_COST: val=X round=Y ts=Z
+        # hclog outputs: ... [EVAL] COMM_COST: val=3 round=1 ts=1234567890
+        tmp_comm = findall(r'\[EVAL\] COMM_COST.*val[=\s](\d+).*round[=\s](\d+).*ts[=\s](\d+)', log)
+        for val, r, ts in tmp_comm:
+            eval_metrics['comm_cost'].append({
+                'value': int(val),
+                'round': int(r),
+                'ts_ns': int(ts)
+            })
 
-        refs_collected = []
-        # Loom: [EVAL] REFS_COLLECTED node %d height %d round %d ref_count %d
-        tmp_refs = findall(r'\[EVAL\] REFS_COLLECTED node (\d+) height (\d+) round (\d+) ref_count (\d+)', log)
-        for n, h, r, c in tmp_refs:
-            refs_collected.append({'node': int(n), 'height': int(h), 'round': int(r), 'count': int(c)})
-            
-        # Loom: [EVAL] BLOCK_PROPOSED node %d height %d round %d ref_count %d
-        # (This can also be used for cumulative input if needed, similar to REFS_COLLECTED)
-        # We can store it in the same list or a new one if needed, but for now refs_collected covers the "refs" graph.
+        # --- Graph 1: Round Advance ---
+        # Wahoo/GradedDAG/Tusk format: [EVAL] ROUND_ADVANCED: node=X old_round=Y new_round=Z blocks_collected=W
+        tmp_rounds = findall(r'\[EVAL\] ROUND_ADVANCED.*node[=\s](\S+).*old_round[=\s](\d+).*new_round[=\s](\d+).*blocks_collected[=\s](\d+)', log)
+        for n, old_r, new_r, col in tmp_rounds:
+            eval_metrics['round_advanced'].append({
+                'node': n,
+                'old_round': int(old_r),
+                'new_round': int(new_r),
+                'blocks_collected': int(col)
+            })
 
-        return batchs,proposals, commits,configs, wait_times, round_advances, refs_collected
+        # --- Graph 2: Block Creation (Input Throughput) ---
+        # Wahoo/GradedDAG/Tusk format: [EVAL] BLOCK_NEW: node=X round=Y ts=Z
+        tmp_blocks = findall(r'\[EVAL\] BLOCK_NEW.*node[=\s](\S+).*round[=\s](\d+).*ts[=\s](\d+)', log)
+        for n, r, ts in tmp_blocks:
+            eval_metrics['block_new'].append({
+                'node': n,
+                'round': int(r),
+                'ts_ns': int(ts)
+            })
+
+        # --- Graph 3: Broadcast End ---
+        # Wahoo format: [EVAL] BROADCAST_END: type=EPBC/PBC round=X blockSender=Y ts=Z
+        # GradedDAG format: [EVAL] BROADCAST_END: type=RBC/CBC round=X blockSender=Y ts=Z
+        # Tusk format: [EVAL] BROADCAST_END: dataSN=X proposer=Y ts=Z
+
+        # Wahoo/GradedDAG with type
+        tmp_broadcast_typed = findall(r'\[EVAL\] BROADCAST_END.*type[=\s](\S+).*round[=\s](\d+).*blockSender[=\s](\S+).*ts[=\s](\d+)', log)
+        for btype, r, sender, ts in tmp_broadcast_typed:
+            eval_metrics['broadcast_end'].append({
+                'type': btype,
+                'round': int(r),
+                'block_sender': sender,
+                'ts_ns': int(ts)
+            })
+
+        # Tusk format (without type, uses dataSN)
+        tmp_broadcast_tusk = findall(r'\[EVAL\] BROADCAST_END.*dataSN[=\s](\d+).*proposer[=\s](\S+).*ts[=\s](\d+)', log)
+        for sn, proposer, ts in tmp_broadcast_tusk:
+            eval_metrics['broadcast_end'].append({
+                'type': 'RBC',
+                'round': int(sn),  # dataSN corresponds to round
+                'block_sender': proposer,
+                'ts_ns': int(ts)
+            })
+
+        return batchs, proposals, commits, configs, eval_metrics
 
     def _to_posix(self, string):
-        # 解析时间字符串为 datetime 对象
         dt = datetime.strptime(string, "%Y/%m/%d %H:%M:%S.%f")
-        # 转换为 Unix 时间戳
         timestamp = dt.timestamp()
         return timestamp
 
@@ -141,7 +175,7 @@ class LogParser:
             return 0, 0, 0
         start, end = min(self.proposals.values()), max(self.commits.values())
         duration = end - start
-        tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
+        tps = len(self.commits) * self.configs['pool']['batch_size'] / duration
         return tps, duration
 
     def _consensus_latency(self):
@@ -153,15 +187,131 @@ class LogParser:
             return 0, 0, 0
         start, end = min(self.batchs.values()), max(self.commits.values())
         duration = end - start
-        tps = len(self.commits)*self.configs['pool']['batch_size'] / duration
+        tps = len(self.commits) * self.configs['pool']['batch_size'] / duration
         return tps, duration
 
     def _end_to_end_latency(self):
         latency = []
-        for id,t in self.commits.items():
+        for id, t in self.commits.items():
             if id in self.batchs:
-                latency += [t-self.batchs[id]]
+                latency += [t - self.batchs[id]]
         return mean(latency) if latency else 0
+
+    def _calculate_graph1_metrics(self):
+        """Calculate Graph 1: Wave Efficiency metrics."""
+        metrics = self.eval_metrics
+
+        # Total communication rounds
+        total_comm_cost = sum(item['value'] for item in metrics['comm_cost'])
+
+        # Total blocks created
+        total_blocks = len(metrics['block_new'])
+
+        # Total rounds advanced
+        total_rounds = len(metrics['round_advanced'])
+
+        # Group by round for detailed analysis
+        comm_by_round = {}
+        for item in metrics['comm_cost']:
+            r = item['round']
+            if r not in comm_by_round:
+                comm_by_round[r] = 0
+            comm_by_round[r] += item['value']
+
+        return {
+            'total_comm_rounds': total_comm_cost,
+            'total_blocks': total_blocks,
+            'total_round_advances': total_rounds,
+            'comm_rounds_per_block': total_comm_cost / total_blocks if total_blocks > 0 else 0,
+            'comm_by_round': comm_by_round,
+        }
+
+    def _calculate_graph2_metrics(self):
+        """Calculate Graph 2: Input Throughput metrics (cumulative blocks over time)."""
+        block_events = sorted(self.eval_metrics['block_new'], key=lambda x: x['ts_ns'])
+
+        if not block_events:
+            return {'cumulative_blocks': []}
+
+        # Create cumulative block count over time
+        start_ts = block_events[0]['ts_ns']
+        cumulative = []
+        for i, event in enumerate(block_events):
+            cumulative.append({
+                'time_ms': (event['ts_ns'] - start_ts) / 1e6,  # Convert ns to ms
+                'cumulative_count': i + 1,
+                'round': event['round'],
+                'node': event['node']
+            })
+
+        return {'cumulative_blocks': cumulative}
+
+    def _calculate_graph3_metrics(self):
+        """Calculate Graph 3: Latency Decomposition (Broadcast Time + Wait-for-Ref Time).
+
+        For Wahoo/GradedDAG/Tusk, we use round R:
+        - Broadcast Time = BROADCAST_END(R) - BLOCK_NEW(R)
+        - Wait-for-Ref Time = BLOCK_NEW(R+1) - BROADCAST_END(R)
+        """
+        # Group events by node
+        block_new_by_node = {}
+        broadcast_end_by_node = {}
+
+        for event in self.eval_metrics['block_new']:
+            node = event['node']
+            round_num = event['round']
+            if node not in block_new_by_node:
+                block_new_by_node[node] = {}
+            block_new_by_node[node][round_num] = event['ts_ns']
+
+        for event in self.eval_metrics['broadcast_end']:
+            sender = event['block_sender']
+            round_num = event['round']
+            if sender not in broadcast_end_by_node:
+                broadcast_end_by_node[sender] = {}
+            # Keep earliest broadcast end for each round
+            if round_num not in broadcast_end_by_node[sender] or broadcast_end_by_node[sender][round_num] > event['ts_ns']:
+                broadcast_end_by_node[sender][round_num] = event['ts_ns']
+
+        latency_data = []
+
+        for node, rounds in block_new_by_node.items():
+            broadcast_ends = broadcast_end_by_node.get(node, {})
+            sorted_rounds = sorted(rounds.keys())
+
+            for i, r in enumerate(sorted_rounds):
+                block_new_ts = rounds[r]
+                broadcast_end_ts = broadcast_ends.get(r)
+
+                broadcast_time_ns = None
+                wait_for_ref_ns = None
+
+                if broadcast_end_ts:
+                    broadcast_time_ns = broadcast_end_ts - block_new_ts
+
+                # Wait-for-ref: time from BROADCAST_END(R) to BLOCK_NEW(R+1)
+                if broadcast_end_ts and (r + 1) in rounds:
+                    next_block_new_ts = rounds[r + 1]
+                    wait_for_ref_ns = next_block_new_ts - broadcast_end_ts
+
+                latency_data.append({
+                    'node': node,
+                    'round': r,
+                    'broadcast_time_ns': broadcast_time_ns,
+                    'wait_for_ref_ns': wait_for_ref_ns,
+                    'broadcast_time_ms': broadcast_time_ns / 1e6 if broadcast_time_ns else None,
+                    'wait_for_ref_ms': wait_for_ref_ns / 1e6 if wait_for_ref_ns else None,
+                })
+
+        # Calculate averages
+        broadcast_times = [d['broadcast_time_ns'] for d in latency_data if d['broadcast_time_ns'] is not None]
+        wait_times = [d['wait_for_ref_ns'] for d in latency_data if d['wait_for_ref_ns'] is not None]
+
+        return {
+            'latency_data': latency_data,
+            'avg_broadcast_time_ms': mean(broadcast_times) / 1e6 if broadcast_times else 0,
+            'avg_wait_for_ref_ms': mean(wait_times) / 1e6 if wait_times else 0,
+        }
 
     def result(self):
         consensus_latency = self._consensus_latency() * 1000
@@ -171,6 +321,10 @@ class LogParser:
         tx_size = self.configs['pool']['tx_size']
         batch_size = self.configs['pool']['batch_size']
         rate = self.configs['pool']['rate']
+
+        graph1 = self._calculate_graph1_metrics()
+        graph3 = self._calculate_graph3_metrics()
+
         return (
             '\n'
             '-----------------------------------------\n'
@@ -192,11 +346,25 @@ class LogParser:
             '\n'
             f' End-to-end TPS: {round(end_to_end_tps):,} tx/s\n'
             f' End-to-end latency: {round(end_to_end_latency):,} ms\n'
+            '\n'
+            ' + EVAL METRICS (Graph 1 - Wave Efficiency):\n'
+            f' Total Comm. Rounds: {graph1["total_comm_rounds"]}\n'
+            f' Total Blocks: {graph1["total_blocks"]}\n'
+            f' Comm. Rounds per Block: {graph1["comm_rounds_per_block"]:.2f}\n'
+            '\n'
+            ' + EVAL METRICS (Graph 3 - Latency Decomposition):\n'
+            f' Avg Broadcast Time: {graph3["avg_broadcast_time_ms"]:.2f} ms\n'
+            f' Avg Wait-for-Ref Time: {graph3["avg_wait_for_ref_ms"]:.2f} ms\n'
             '-----------------------------------------\n'
         )
 
     def write_json(self, filename):
         import json
+
+        graph1 = self._calculate_graph1_metrics()
+        graph2 = self._calculate_graph2_metrics()
+        graph3 = self._calculate_graph3_metrics()
+
         data = {
             'config': self.configs,
             'summary': {
@@ -205,9 +373,10 @@ class LogParser:
                 'end_to_end_tps': self._end_to_end_throughput()[0],
                 'end_to_end_latency': self._end_to_end_latency() * 1000,
             },
-            'wait_times': self.wait_times,
-            'round_advances': self.round_advances,
-            'refs_collected': self.refs_collected
+            'graph1_wave_efficiency': graph1,
+            'graph2_input_throughput': graph2,
+            'graph3_latency_decomposition': graph3,
+            'raw_eval_metrics': self.eval_metrics,
         }
         with open(filename, 'w') as f:
             json.dump(data, f, indent=4)
@@ -229,7 +398,3 @@ class LogParser:
         parser = cls(nodes, faults=faults, protocol=protocol, ddos=ddos)
         parser.write_json(join(directory, 'metrics.json'))
         return parser
-
-
-class WahooLogParser:
-    pass

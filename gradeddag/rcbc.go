@@ -3,6 +3,7 @@ package gradeddag
 import (
 	"crypto/ed25519"
 	"sync"
+	"time"
 
 	"github.com/gitzhang10/BFT/common"
 	"github.com/gitzhang10/BFT/conn"
@@ -177,6 +178,11 @@ func (c *CBC) checkIfQuorumReady(ready *Ready) {
 		c.doneOutput[ready.Round] = make(map[string]bool)
 	}
 	if len(readies) >= c.quorumNum && !c.doneOutput[ready.Round][ready.BlockSender] {
+		// [EVAL] Broadcast End (GradedDAG RBC - Odd Round)
+		if ready.Round%2 == 1 {
+			c.logger.Info("[EVAL] BROADCAST_END", "type", "RBC", "round", ready.Round, "blockSender", ready.BlockSender, "ts", time.Now().UnixNano())
+		}
+
 		c.doneOutput[ready.Round][ready.BlockSender] = true
 		var partialSig [][]byte
 		for _, parSig := range readies {
@@ -222,6 +228,12 @@ func (c *CBC) tryToOutputBlocks(round uint64, sender string) {
 	} else {
 		c.lock.Unlock()
 	}
+
+	// [EVAL] Broadcast End (GradedDAG CBC - Even Round)
+	if block.Round%2 == 0 {
+		c.logger.Info("[EVAL] BROADCAST_END", "type", "CBC", "round", block.Round, "blockSender", block.Sender, "ts", time.Now().UnixNano())
+	}
+
 	c.blockCh <- *block
 }
 
