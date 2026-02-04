@@ -107,15 +107,27 @@ class LogParser:
         }
 
         # --- Graph 1: Communication Rounds ---
-        # Wahoo/GradedDAG/Tusk format: [EVAL] COMM_COST: val=X round=Y ts=Z
-        # hclog outputs: ... [EVAL] COMM_COST: val=3 round=1 ts=1234567890
-        tmp_comm = findall(r'\[EVAL\] COMM_COST.*val[=\s](\d+).*round[=\s](\d+).*ts[=\s](\d+)', log)
-        for val, r, ts in tmp_comm:
-            eval_metrics['comm_cost'].append({
-                'value': int(val),
-                'round': int(r),
-                'ts_ns': int(ts)
-            })
+        # Try new format first: [EVAL] COMM_COST: node=X val=Y round=Z ts=W
+        tmp_comm_new = findall(r'\[EVAL\] COMM_COST.*node[=\s](\S+).*val[=\s](\d+).*round[=\s](\d+).*ts[=\s](\d+)', log)
+        if tmp_comm_new:
+            for n, val, r, ts in tmp_comm_new:
+                eval_metrics['comm_cost'].append({
+                    'node': n,
+                    'value': int(val),
+                    'round': int(r),
+                    'ts_ns': int(ts)
+                })
+        else:
+            # Fall back to old format: [EVAL] COMM_COST: val=X round=Y ts=Z
+            # Node will be inferred later from BLOCK_NEW
+            tmp_comm = findall(r'\[EVAL\] COMM_COST.*val[=\s](\d+).*round[=\s](\d+).*ts[=\s](\d+)', log)
+            for val, r, ts in tmp_comm:
+                eval_metrics['comm_cost'].append({
+                    'node': None,  # Will be set after parsing BLOCK_NEW
+                    'value': int(val),
+                    'round': int(r),
+                    'ts_ns': int(ts)
+                })
 
         # --- Graph 1: Round Advance ---
         # Wahoo/GradedDAG/Tusk format: [EVAL] ROUND_ADVANCED: node=X old_round=Y new_round=Z blocks_collected=W
@@ -163,6 +175,13 @@ class LogParser:
                 'ts_ns': int(ts)
             })
 
+        # Infer node for old COMM_COST logs (without node info)
+        if eval_metrics['block_new']:
+            inferred_node = eval_metrics['block_new'][0]['node']
+            for item in eval_metrics['comm_cost']:
+                if item['node'] is None:
+                    item['node'] = inferred_node
+
         return batchs, proposals, commits, configs, eval_metrics
 
     def _to_posix(self, string):
@@ -198,56 +217,98 @@ class LogParser:
         return mean(latency) if latency else 0
 
     def _calculate_graph1_metrics(self):
-        """Calculate Graph 1: Wave Efficiency metrics."""
+        """Calculate Graph 1: Wave Efficiency metrics (per-node, then averaged)."""
         metrics = self.eval_metrics
 
-        # Total communication rounds
-        total_comm_cost = sum(item['value'] for item in metrics['comm_cost'])
+        # Group by node
+        comm_by_node = {}
+        blocks_by_node = {}
+        rounds_by_node = {}
 
-        # Total blocks created
-        total_blocks = len(metrics['block_new'])
-
-        # Total rounds advanced
-        total_rounds = len(metrics['round_advanced'])
-
-        # Group by round for detailed analysis
-        comm_by_round = {}
         for item in metrics['comm_cost']:
-            r = item['round']
-            if r not in comm_by_round:
-                comm_by_round[r] = 0
-            comm_by_round[r] += item['value']
+            # For Wahoo/GradedDAG/Tusk, node info comes from block_new events
+            # comm_cost doesn't have node, so we count per round and divide by num_nodes later
+            round_num = item['round']
+            if 'all' not in comm_by_node:
+                comm_by_node['all'] = 0
+            comm_by_node['all'] += item['value']
+
+        for item in metrics['block_new']:
+            node = item['node']
+            if node not in blocks_by_node:
+                blocks_by_node[node] = 0
+            blocks_by_node[node] += 1
+
+        for item in metrics['round_advanced']:
+            node = item['node']
+            if node not in rounds_by_node:
+                rounds_by_node[node] = 0
+            rounds_by_node[node] += 1
+
+        # Calculate per-node metrics
+        all_nodes = set(blocks_by_node.keys())
+        num_nodes = len(all_nodes) if all_nodes else 1
+
+        # Comm cost is logged once per round (not per node), so divide by num_nodes
+        total_comm = comm_by_node.get('all', 0)
+        avg_comm_per_node = total_comm / num_nodes if num_nodes > 0 else 0
+
+        per_node_data = {}
+        for node in all_nodes:
+            node_blocks = blocks_by_node.get(node, 0)
+            node_rounds = rounds_by_node.get(node, 0)
+            # Estimate per-node comm cost based on blocks ratio
+            node_comm = avg_comm_per_node
+            per_node_data[node] = {
+                'comm_rounds': node_comm,
+                'blocks': node_blocks,
+                'round_advances': node_rounds,
+                'comm_rounds_per_block': node_comm / node_blocks if node_blocks > 0 else 0,
+            }
+
+        # Calculate averages across nodes
+        avg_blocks = mean([d['blocks'] for d in per_node_data.values()]) if per_node_data else 0
+        avg_round_advances = mean([d['round_advances'] for d in per_node_data.values()]) if per_node_data else 0
+        avg_comm_per_block = mean([d['comm_rounds_per_block'] for d in per_node_data.values()]) if per_node_data else 0
 
         return {
-            'total_comm_rounds': total_comm_cost,
-            'total_blocks': total_blocks,
-            'total_round_advances': total_rounds,
-            'comm_rounds_per_block': total_comm_cost / total_blocks if total_blocks > 0 else 0,
-            'comm_by_round': comm_by_round,
+            'avg_comm_rounds_per_node': avg_comm_per_node,
+            'avg_blocks_per_node': avg_blocks,
+            'avg_round_advances_per_node': avg_round_advances,
+            'avg_comm_rounds_per_block': avg_comm_per_block,
+            'num_nodes': num_nodes,
+            'per_node_data': per_node_data,
         }
 
     def _calculate_graph2_metrics(self):
-        """Calculate Graph 2: Input Throughput metrics (cumulative blocks over time)."""
-        block_events = sorted(self.eval_metrics['block_new'], key=lambda x: x['ts_ns'])
+        """Calculate Graph 2: Input Throughput metrics (per-node cumulative blocks over time)."""
+        # Group by node
+        blocks_by_node = {}
+        for event in self.eval_metrics['block_new']:
+            node = event['node']
+            if node not in blocks_by_node:
+                blocks_by_node[node] = []
+            blocks_by_node[node].append(event)
 
-        if not block_events:
-            return {'cumulative_blocks': []}
+        per_node_cumulative = {}
+        for node, events in blocks_by_node.items():
+            sorted_events = sorted(events, key=lambda x: x['ts_ns'])
+            if not sorted_events:
+                continue
+            start_ts = sorted_events[0]['ts_ns']
+            cumulative = []
+            for i, event in enumerate(sorted_events):
+                cumulative.append({
+                    'time_ms': (event['ts_ns'] - start_ts) / 1e6,
+                    'cumulative_count': i + 1,
+                    'round': event['round'],
+                })
+            per_node_cumulative[node] = cumulative
 
-        # Create cumulative block count over time
-        start_ts = block_events[0]['ts_ns']
-        cumulative = []
-        for i, event in enumerate(block_events):
-            cumulative.append({
-                'time_ms': (event['ts_ns'] - start_ts) / 1e6,  # Convert ns to ms
-                'cumulative_count': i + 1,
-                'round': event['round'],
-                'node': event['node']
-            })
-
-        return {'cumulative_blocks': cumulative}
+        return {'per_node_cumulative': per_node_cumulative}
 
     def _calculate_graph3_metrics(self):
-        """Calculate Graph 3: Latency Decomposition (Broadcast Time + Wait-for-Ref Time).
+        """Calculate Graph 3: Latency Decomposition (per-node, then averaged).
 
         For Wahoo/GradedDAG/Tusk, we use round R:
         - Broadcast Time = BROADCAST_END(R) - BLOCK_NEW(R)
@@ -273,44 +334,43 @@ class LogParser:
             if round_num not in broadcast_end_by_node[sender] or broadcast_end_by_node[sender][round_num] > event['ts_ns']:
                 broadcast_end_by_node[sender][round_num] = event['ts_ns']
 
-        latency_data = []
+        per_node_latency = {}
 
         for node, rounds in block_new_by_node.items():
             broadcast_ends = broadcast_end_by_node.get(node, {})
             sorted_rounds = sorted(rounds.keys())
 
+            node_broadcast_times = []
+            node_wait_times = []
+
             for i, r in enumerate(sorted_rounds):
                 block_new_ts = rounds[r]
                 broadcast_end_ts = broadcast_ends.get(r)
 
-                broadcast_time_ns = None
-                wait_for_ref_ns = None
-
                 if broadcast_end_ts:
                     broadcast_time_ns = broadcast_end_ts - block_new_ts
+                    node_broadcast_times.append(broadcast_time_ns)
 
-                # Wait-for-ref: time from BROADCAST_END(R) to BLOCK_NEW(R+1)
-                if broadcast_end_ts and (r + 1) in rounds:
-                    next_block_new_ts = rounds[r + 1]
-                    wait_for_ref_ns = next_block_new_ts - broadcast_end_ts
+                    # Wait-for-ref: time from BROADCAST_END(R) to BLOCK_NEW(R+1)
+                    if (r + 1) in rounds:
+                        next_block_new_ts = rounds[r + 1]
+                        wait_for_ref_ns = next_block_new_ts - broadcast_end_ts
+                        node_wait_times.append(wait_for_ref_ns)
 
-                latency_data.append({
-                    'node': node,
-                    'round': r,
-                    'broadcast_time_ns': broadcast_time_ns,
-                    'wait_for_ref_ns': wait_for_ref_ns,
-                    'broadcast_time_ms': broadcast_time_ns / 1e6 if broadcast_time_ns else None,
-                    'wait_for_ref_ms': wait_for_ref_ns / 1e6 if wait_for_ref_ns else None,
-                })
+            per_node_latency[node] = {
+                'avg_broadcast_time_ms': mean(node_broadcast_times) / 1e6 if node_broadcast_times else 0,
+                'avg_wait_for_ref_ms': mean(node_wait_times) / 1e6 if node_wait_times else 0,
+                'num_samples': len(node_broadcast_times),
+            }
 
-        # Calculate averages
-        broadcast_times = [d['broadcast_time_ns'] for d in latency_data if d['broadcast_time_ns'] is not None]
-        wait_times = [d['wait_for_ref_ns'] for d in latency_data if d['wait_for_ref_ns'] is not None]
+        # Calculate overall averages across nodes
+        all_broadcast = [d['avg_broadcast_time_ms'] for d in per_node_latency.values() if d['num_samples'] > 0]
+        all_wait = [d['avg_wait_for_ref_ms'] for d in per_node_latency.values() if d['num_samples'] > 0]
 
         return {
-            'latency_data': latency_data,
-            'avg_broadcast_time_ms': mean(broadcast_times) / 1e6 if broadcast_times else 0,
-            'avg_wait_for_ref_ms': mean(wait_times) / 1e6 if wait_times else 0,
+            'avg_broadcast_time_ms': mean(all_broadcast) if all_broadcast else 0,
+            'avg_wait_for_ref_ms': mean(all_wait) if all_wait else 0,
+            'per_node_latency': per_node_latency,
         }
 
     def result(self):

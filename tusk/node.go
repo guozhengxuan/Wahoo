@@ -122,7 +122,7 @@ func (n *Node) RunLoop() {
 		go n.broadcastBlock(currentRound)
 
 		// [EVAL] Comm Cost & Block New
-		n.logger.Info("[EVAL] COMM_COST", "val", 3, "round", currentRound, "ts", time.Now().UnixNano())
+		n.logger.Info("[EVAL] COMM_COST", "node", n.name, "val", 3, "round", currentRound, "ts", time.Now().UnixNano())
 		n.logger.Info("[EVAL] BLOCK_NEW", "node", n.name, "round", currentRound, "ts", time.Now().UnixNano())
 
 		if currentRound % 2 == 1 && currentRound > 1 {

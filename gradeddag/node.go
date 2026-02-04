@@ -130,7 +130,7 @@ func (n *Node) RunLoop() {
 		if currentRound%2 == 0 {
 			commCost = 3
 		}
-		n.logger.Info("[EVAL] COMM_COST", "val", commCost, "round", currentRound, "ts", time.Now().UnixNano())
+		n.logger.Info("[EVAL] COMM_COST", "node", n.name, "val", commCost, "round", currentRound, "ts", time.Now().UnixNano())
 		n.logger.Info("[EVAL] BLOCK_NEW", "node", n.name, "round", currentRound, "ts", time.Now().UnixNano())
 
 		if currentRound%2 == 0 {
